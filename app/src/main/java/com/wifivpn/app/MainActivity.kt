@@ -389,7 +389,6 @@ class MainActivity : AppCompatActivity() {
         about.aboutVersion.text = getString(R.string.about_version, appVersionName())
 
         MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.about_title)
             .setView(about.root)
             .setPositiveButton(R.string.about_close, null)
             .show()

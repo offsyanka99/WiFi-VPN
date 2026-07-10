@@ -71,7 +71,6 @@
     <string name="tile_subtitle_off">Monitoring off</string>
     <string name="tile_need_setup">Open app to set up</string>
     <string name="about_link">About</string>
-    <string name="about_title">About</string>
     <string name="about_version">Version %1$s</string>
     <string name="about_author">Author: HummerSoft</string>
     <string name="about_year">2026</string>
