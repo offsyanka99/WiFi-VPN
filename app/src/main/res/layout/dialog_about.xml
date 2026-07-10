@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:gravity="center_horizontal"
+    android:orientation="vertical"
+    android:paddingHorizontal="24dp"
+    android:paddingTop="8dp"
+    android:paddingBottom="8dp">
+
+    <ImageView
+        android:id="@+id/aboutIcon"
+        android:layout_width="72dp"
+        android:layout_height="72dp"
+        android:contentDescription="@string/app_name"
+        android:src="@mipmap/ic_launcher" />
+
+    <TextView
+        android:id="@+id/aboutName"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="@string/app_name"
+        android:textAppearance="?attr/textAppearanceTitleLarge"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/aboutVersion"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:textAppearance="?attr/textAppearanceBodyMedium"
+        android:textColor="@color/status_off"
+        tools:text="Version 1.0" />
+
+    <TextView
+        android:id="@+id/aboutAuthor"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:text="@string/about_author"
+        android:textAppearance="?attr/textAppearanceBodyMedium"
+        android:textColor="@color/status_off" />
+
+    <TextView
+        android:id="@+id/aboutYear"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="@string/about_year"
+        android:textAppearance="?attr/textAppearanceBodyMedium"
+        android:textColor="@color/status_off" />
+</LinearLayout>
+

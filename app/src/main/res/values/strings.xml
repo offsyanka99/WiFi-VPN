@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">WiFi VPN</string>
+    <string name="notification_channel_name">WiFi monitor</string>
+    <string name="notification_channel_desc">Shows status while monitoring WiFi and controlling VPN</string>
+    <string name="notification_title">WiFi VPN monitor</string>
+    <string name="notification_trusted_wifi">Trusted Wi‑Fi — VPN off</string>
+    <string name="notification_untrusted_wifi">Other Wi‑Fi — VPN active</string>
+    <string name="notification_wifi_lost">No Wi‑Fi — VPN active</string>
+    <string name="notification_waiting">Monitoring Wi‑Fi…</string>
+    <string name="notification_error">Error: %1$s</string>
+    <string name="vpn_connecting">Connecting VPN…</string>
+    <string name="vpn_retrying">VPN connect failed — retry %1$d/%2$d in 5s…</string>
+    <string name="vpn_retry_attempt">Connecting VPN (attempt %1$d of %2$d)…</string>
+    <string name="vpn_connect_failed">VPN failed after %1$d attempts: %2$s</string>
+
+    <string name="status_wifi_trusted">Wi‑Fi: trusted (%1$s)</string>
+    <string name="status_wifi_other">Wi‑Fi: other network (%1$s)</string>
+    <string name="status_wifi_unknown">Wi‑Fi: connected (name unknown)</string>
+    <string name="status_wifi_disconnected">Wi‑Fi: disconnected</string>
+    <string name="status_vpn_on">VPN: on</string>
+    <string name="status_vpn_off">VPN: off</string>
+    <string name="status_monitoring_on">Monitoring: on</string>
+    <string name="status_monitoring_off">Monitoring: off</string>
+    <string name="label_wg_config">WireGuard config</string>
+    <string name="config_not_loaded">No config file loaded</string>
+    <string name="config_loaded">Loaded: %1$s</string>
+    <string name="btn_load_config">Load config file…</string>
+    <string name="btn_clear_config">Clear config</string>
+    <string name="btn_start_monitoring">Start monitoring</string>
+    <string name="btn_stop_monitoring">Stop monitoring</string>
+    <string name="btn_request_vpn">Grant VPN permission</string>
+    <string name="label_excluded_apps">Exclude applications from VPN</string>
+    <string name="excluded_apps_help">Selected apps bypass the VPN (e.g. Android Auto). Changes apply the next time the tunnel starts.</string>
+    <string name="btn_choose_excluded_apps">Choose apps…</string>
+    <string name="excluded_none">No apps excluded</string>
+    <string name="excluded_count">%1$d app(s) excluded</string>
+    <string name="exclude_apps_title">Exclude from VPN</string>
+    <string name="btn_save_exclusions">Save</string>
+    <string name="hint_search_apps">Search apps</string>
+    <string name="label_trusted_wifi">Trusted Wi‑Fi networks</string>
+    <string name="trusted_wifi_help">VPN turns off only on these networks. On any other Wi‑Fi (or no Wi‑Fi), VPN stays on.</string>
+    <string name="trusted_wifi_none">No trusted networks yet — VPN stays on while monitoring</string>
+    <string name="trusted_wifi_count">%1$d trusted network(s)</string>
+    <string name="hint_wifi_ssid">Wi‑Fi name (SSID)</string>
+    <string name="btn_add_wifi">Add</string>
+    <string name="btn_add_current_wifi">Add current network</string>
+    <string name="btn_remove_wifi">Remove</string>
+    <string name="msg_wifi_added">Added “%1$s”</string>
+    <string name="msg_wifi_exists">“%1$s” is already in the list</string>
+    <string name="msg_wifi_empty">Enter a Wi‑Fi name</string>
+    <string name="msg_wifi_current_unknown">Could not read current Wi‑Fi name. Grant location / nearby Wi‑Fi permission and ensure location is on.</string>
+    <string name="msg_wifi_removed">Removed “%1$s”</string>
+    <string name="msg_location_permission_needed">Location / nearby Wi‑Fi permission is needed to read Wi‑Fi names</string>
+    <string name="msg_config_saved">Config loaded</string>
+    <string name="msg_config_cleared">Config cleared</string>
+    <string name="msg_config_empty">Load a WireGuard .conf file first</string>
+    <string name="msg_config_invalid">Invalid WireGuard config: %1$s</string>
+    <string name="msg_config_read_failed">Could not read file: %1$s</string>
+    <string name="msg_exclusions_saved">Excluded apps saved</string>
+    <string name="msg_vpn_permission_needed">VPN permission is required before monitoring can start</string>
+    <string name="msg_notification_permission_needed">Notification permission helps the monitor stay alive in the background</string>
+    <string name="msg_trusted_wifi_required">Add at least one trusted Wi‑Fi network first</string>
+    <string name="help_text">Monitors your trusted Wi‑Fi networks in the background. VPN turns off on those networks and stays on everywhere else.</string>
+    <string name="label_auto_start">Auto-start after reboot</string>
+    <string name="auto_start_help">When enabled, monitoring starts in the background after the phone reboots (requires config and trusted Wi‑Fi).</string>
+    <string name="msg_auto_start_on">Auto-start enabled</string>
+    <string name="msg_auto_start_off">Auto-start disabled</string>
+    <string name="tile_label">WiFi VPN</string>
+    <string name="tile_subtitle_on">Monitoring on</string>
+    <string name="tile_subtitle_off">Monitoring off</string>
+    <string name="tile_need_setup">Open app to set up</string>
+    <string name="about_link">About</string>
+    <string name="about_title">About</string>
+    <string name="about_version">Version %1$s</string>
+    <string name="about_author">Author: HummerSoft</string>
+    <string name="about_year">Year: 2026</string>
+    <string name="about_close">Close</string>
+</resources>
+
+
+
