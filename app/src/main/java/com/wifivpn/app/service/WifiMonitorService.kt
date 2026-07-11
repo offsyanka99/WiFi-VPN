@@ -112,6 +112,7 @@ class WifiMonitorService : LifecycleService() {
             }
             _uiState.value = _uiState.value.copy(vpnActive = false, message = msg)
             updateNotification(msg)
+            MonitorTileService.requestUpdate(this)
         } else {
             bringVpnUpWithRetry(snap)
         }
@@ -135,6 +136,7 @@ class WifiMonitorService : LifecycleService() {
             val msg = successMessage(snap)
             _uiState.value = _uiState.value.copy(vpnActive = true, message = msg)
             updateNotification(msg)
+            MonitorTileService.requestUpdate(this)
             return
         }
 
@@ -156,6 +158,7 @@ class WifiMonitorService : LifecycleService() {
                 val msg = successMessage(snap)
                 _uiState.value = _uiState.value.copy(vpnActive = true, message = msg)
                 updateNotification(msg)
+                MonitorTileService.requestUpdate(this)
                 Log.i(TAG, "VPN up on attempt $attempt")
                 return
             }
@@ -193,6 +196,7 @@ class WifiMonitorService : LifecycleService() {
         )
         _uiState.value = _uiState.value.copy(vpnActive = false, message = finalMsg)
         updateNotification(finalMsg)
+        MonitorTileService.requestUpdate(this)
         Log.e(TAG, finalMsg)
     }
 
@@ -226,23 +230,45 @@ class WifiMonitorService : LifecycleService() {
         // location: SSID is location-sensitive; keeps reads working with screen off while
         // the monitor FGS is running (while-in-use location permission is enough).
         // specialUse: declared purpose of continuous Wi‑Fi / VPN policy monitoring (API 34+).
-        val fgsType = when {
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE ->
+        // Note: location FGS cannot start from background (e.g. raw TileService) on API 34+
+        // without ACCESS_BACKGROUND_LOCATION — callers should start from an Activity.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            startForeground(WifiVpnApp.NOTIFICATION_ID, notification)
+            return
+        }
+
+        val locationAndSpecial =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION or
                     ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q ->
+            } else {
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
-            else -> 0
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            }
+
+        try {
             ServiceCompat.startForeground(
                 this,
                 WifiVpnApp.NOTIFICATION_ID,
                 notification,
-                fgsType
+                locationAndSpecial
             )
-        } else {
-            startForeground(WifiVpnApp.NOTIFICATION_ID, notification)
+        } catch (e: SecurityException) {
+            Log.w(TAG, "FGS location type rejected, falling back to specialUse: ${e.message}")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                try {
+                    ServiceCompat.startForeground(
+                        this,
+                        WifiVpnApp.NOTIFICATION_ID,
+                        notification,
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                    )
+                    return
+                } catch (e2: SecurityException) {
+                    Log.e(TAG, "FGS specialUse also rejected", e2)
+                    throw e2
+                }
+            }
+            throw e
         }
     }
 

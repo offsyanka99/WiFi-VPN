@@ -76,6 +76,14 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+
+        handleStartMonitoringIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleStartMonitoringIntent(intent)
     }
 
     override fun onResume() {
@@ -85,6 +93,19 @@ class MainActivity : AppCompatActivity() {
         }
         // Keep QS tile label (tunnel name) in sync when returning to the app
         MonitorTileService.requestUpdate(this)
+    }
+
+    /**
+     * QS tile starts monitoring via this Activity so the location FGS can
+     * start from a foreground-eligible process (Android 14+ requirement).
+     */
+    private fun handleStartMonitoringIntent(intent: Intent?) {
+        if (intent?.getBooleanExtra(EXTRA_START_MONITORING, false) != true) return
+        // Consume so rotation / re-delivery does not restart repeatedly
+        intent.removeExtra(EXTRA_START_MONITORING)
+        val fromTile = intent.getBooleanExtra(EXTRA_FROM_TILE, false)
+        intent.removeExtra(EXTRA_FROM_TILE)
+        startMonitoringInternal(fromTile = fromTile)
     }
 
     /**
@@ -219,7 +240,10 @@ class MainActivity : AppCompatActivity() {
             WifiMonitorService.stop(this)
             return
         }
+        startMonitoringInternal(fromTile = false)
+    }
 
+    private fun startMonitoringInternal(fromTile: Boolean) {
         lifecycleScope.launch {
             val raw = app.configRepository.getWireGuardConfig()
             if (raw.isBlank()) {
@@ -255,7 +279,17 @@ class MainActivity : AppCompatActivity() {
                 return@launch
             }
 
-            WifiMonitorService.start(this@MainActivity)
+            try {
+                WifiMonitorService.start(this@MainActivity)
+                MonitorTileService.requestUpdate(this@MainActivity)
+                if (fromTile) {
+                    // Return to previous app / home after QS start
+                    moveTaskToBack(true)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to start monitoring", e)
+                toast(e.message ?: e.javaClass.simpleName)
+            }
         }
     }
 
@@ -294,5 +328,9 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "MainActivity"
+
+        /** QS tile: start monitoring from a foreground-eligible Activity. */
+        const val EXTRA_START_MONITORING = "com.wifivpn.app.extra.START_MONITORING"
+        const val EXTRA_FROM_TILE = "com.wifivpn.app.extra.FROM_TILE"
     }
 }

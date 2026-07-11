@@ -87,6 +87,8 @@
     <string name="tile_label">WiFi VPN</string>
     <string name="tile_subtitle_on">Monitoring on</string>
     <string name="tile_subtitle_off">Monitoring off</string>
+    <string name="tile_vpn_on">VPN on</string>
+    <string name="tile_vpn_off">VPN off</string>
     <string name="tile_need_setup">Open app to set up</string>
     <string name="configuration_link">Configuration</string>
     <string name="configuration_title">Configuration</string>
