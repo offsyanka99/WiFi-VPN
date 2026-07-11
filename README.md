@@ -1,6 +1,6 @@
 # WiFi VPN
 
-**Version 1.1**
+**Version 1.1.1**
 
 Android app that monitors **trusted Wi‑Fi networks** in the background and automatically controls a **WireGuard** tunnel:
 
@@ -12,6 +12,12 @@ Android app that monitors **trusted Wi‑Fi networks** in the background and aut
 Built with **Kotlin + Jetpack** (Foreground Service, ConnectivityManager, DataStore, Material 3) and the official WireGuard tunnel library (`com.wireguard.android:tunnel`).
 
 ## Changelog
+
+### 1.1.1
+
+- **Quick Settings tile** icon is a proper white-on-transparent vector (24×24dp) so the system no longer renders a solid white square
+- Tile glyph enlarged to fill the standard QS icon area better
+- Note: tile **width** (small vs wide) is controlled by the system / user (e.g. Android 16 QS edit), not by the app
 
 ### 1.1
 
@@ -31,7 +37,7 @@ Built with **Kotlin + Jetpack** (Foreground Service, ConnectivityManager, DataSt
 | **`release/1.0`** | Stable **v1.0** release line (bugfixes only if needed) |
 | **`main`** | Ongoing development for future versions |
 
-Tags: `v1.0` marks the 1.0 release point; `v1.1` marks this release.
+Tags: `v1.0` / `v1.1` / `v1.1.1` mark release points.
 
 ## Features
 
@@ -84,7 +90,7 @@ Release builds use signing from `keystore.properties` (see `app/build.gradle.kts
 adb install -r app/build/outputs/apk/release/wifi-vpn-release.apk
 ```
 
-### Install v1.1 release APK
+### Install release APK
 
 After a successful `assembleRelease`:
 
@@ -92,7 +98,7 @@ After a successful `assembleRelease`:
 app/build/outputs/apk/release/wifi-vpn-release.apk
 ```
 
-APKs are gitignored; build them locally (or from CI) with the project keystore.
+Current release: **1.1.1** (`versionCode` 3). APKs are gitignored; build them locally (or from CI) with the project keystore.
 
 ## Setup
 
