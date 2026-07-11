@@ -46,15 +46,15 @@ Environment is appended to `~/.bashrc` (`JAVA_HOME`, `ANDROID_HOME`, `PATH`). Op
 source ~/.bashrc
 cd /path/to/WiFi-VPN
 ./gradlew assembleDebug
-# APK: app/build/outputs/apk/debug/app-debug.apk
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+# APK: app/build/outputs/apk/debug/wifi-vpn-debug.apk
+adb install -r app/build/outputs/apk/debug/wifi-vpn-debug.apk
 ```
 
 Release builds use signing from `keystore.properties` (see `app/build.gradle.kts`). Keystore files and that properties file are gitignored.
 
 ```bash
 ./gradlew assembleRelease
-# APK: app/build/outputs/apk/release/app-release.apk
+# APK: app/build/outputs/apk/release/wifi-vpn-release.apk
 ```
 
 ## Setup

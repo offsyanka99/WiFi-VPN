@@ -25,6 +25,11 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // APK names: wifi-vpn-debug.apk, wifi-vpn-release.apk
+    base {
+        archivesName.set("wifi-vpn")
+    }
+
     signingConfigs {
         create("release") {
             if (keystorePropertiesFile.exists()) {
