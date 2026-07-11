@@ -14,9 +14,13 @@ import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.widget.Toast
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -102,9 +106,11 @@ class ConfigurationActivity : AppCompatActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         binding = ActivityConfigurationBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        applySystemBarInsets()
         wifiMonitor = WifiConnectivityMonitor(this)
 
         binding.toolbar.setNavigationOnClickListener { finish() }
@@ -184,6 +190,14 @@ class ConfigurationActivity : AppCompatActivity() {
         lifecycleScope.launch {
             renderExcludedApps(app.configRepository.getExcludedApps())
             renderTrustedWifi(app.configRepository.getTrustedWifiSsids())
+        }
+    }
+
+    private fun applySystemBarInsets() {
+        ViewCompat.setOnApplyWindowInsetsListener(binding.root) { view, windowInsets ->
+            val bars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
+            view.updatePadding(top = bars.top, bottom = bars.bottom)
+            windowInsets
         }
     }
 

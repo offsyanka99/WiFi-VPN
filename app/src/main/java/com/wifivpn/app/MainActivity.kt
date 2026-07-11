@@ -7,9 +7,13 @@ import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -47,9 +51,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        applySystemBarInsets()
         wifiMonitor = WifiConnectivityMonitor(this)
 
         requestNotificationPermissionIfNeeded()
@@ -79,6 +85,23 @@ class MainActivity : AppCompatActivity() {
         }
         // Keep QS tile label (tunnel name) in sync when returning to the app
         MonitorTileService.requestUpdate(this)
+    }
+
+    /**
+     * Pixel / Android 15+ draws edge-to-edge; pad content below the status bar
+     * so the title does not sit under system icons.
+     */
+    private fun applySystemBarInsets() {
+        val baseTop = binding.root.paddingTop
+        val baseBottom = binding.root.paddingBottom
+        ViewCompat.setOnApplyWindowInsetsListener(binding.root) { view, windowInsets ->
+            val bars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
+            view.updatePadding(
+                top = bars.top + baseTop,
+                bottom = bars.bottom + baseBottom
+            )
+            windowInsets
+        }
     }
 
     private fun refreshWifiStatusHint() {
