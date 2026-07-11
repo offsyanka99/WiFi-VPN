@@ -1,6 +1,6 @@
 # WiFi VPN
 
-**Version 1.3**
+**Version 1.3.1**
 
 Android app that monitors **trusted Wi‑Fi networks** in the background and automatically controls a **WireGuard** tunnel:
 
@@ -12,6 +12,11 @@ Android app that monitors **trusted Wi‑Fi networks** in the background and aut
 Built with **Kotlin + Jetpack** (Foreground Service, ConnectivityManager, DataStore, Material 3) and the official WireGuard tunnel library (`com.wireguard.android:tunnel`).
 
 ## Changelog
+
+### 1.3.1
+
+- VPN retries UI: **−** / **+** text controls (not circular buttons), left-aligned with spacing around the value
+- Default VPN retry **attempts = 10**
 
 ### 1.3
 
@@ -59,7 +64,7 @@ Built with **Kotlin + Jetpack** (Foreground Service, ConnectivityManager, DataSt
 | **`release/1.0`** | Stable **v1.0** release line (bugfixes only if needed) |
 | **`main`** | Ongoing development for future versions |
 
-Tags: `v1.0` / `v1.1` / `v1.1.1` / `v1.2` / `v1.2.1` / `v1.2.2` / `v1.3` mark release points.
+Tags: `v1.0` / `v1.1` / `v1.1.1` / `v1.2` / `v1.2.1` / `v1.2.2` / `v1.3` / `v1.3.1` mark release points.
 
 ## Features
 
@@ -122,7 +127,7 @@ After a successful `assembleRelease`:
 app/build/outputs/apk/release/wifi-vpn-release.apk
 ```
 
-Current release: **1.3** (`versionCode` 7). APKs are gitignored; build them locally (or from CI) with the project keystore.
+Current release: **1.3.1** (`versionCode` 8). APKs are gitignored; build them locally (or from CI) with the project keystore.
 
 ## Setup
 

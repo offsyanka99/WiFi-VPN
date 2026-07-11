@@ -253,39 +253,45 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
-                        android:gravity="center_vertical"
+                        android:gravity="start|center_vertical"
                         android:orientation="horizontal">
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btnRetryAttemptsMinus"
-                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            style="@style/Widget.Material3.Button.TextButton"
                             android:layout_width="48dp"
-                            android:layout_height="wrap_content"
+                            android:layout_height="48dp"
                             android:insetTop="0dp"
                             android:insetBottom="0dp"
                             android:minWidth="48dp"
-                            android:text="@string/btn_minus"
-                            android:textSize="18sp" />
+                            android:padding="0dp"
+                            android:text="-"
+                            android:textSize="28sp"
+                            android:textStyle="bold"
+                            app:cornerRadius="8dp" />
 
                         <TextView
                             android:id="@+id/retryAttemptsValue"
-                            android:layout_width="0dp"
+                            android:layout_width="72dp"
                             android:layout_height="wrap_content"
-                            android:layout_weight="1"
+                            android:layout_marginHorizontal="20dp"
                             android:gravity="center"
                             android:textAppearance="?attr/textAppearanceTitleMedium"
-                            tools:text="3" />
+                            tools:text="10" />
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btnRetryAttemptsPlus"
-                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            style="@style/Widget.Material3.Button.TextButton"
                             android:layout_width="48dp"
-                            android:layout_height="wrap_content"
+                            android:layout_height="48dp"
                             android:insetTop="0dp"
                             android:insetBottom="0dp"
                             android:minWidth="48dp"
-                            android:text="@string/btn_plus"
-                            android:textSize="18sp" />
+                            android:padding="0dp"
+                            android:text="+"
+                            android:textSize="28sp"
+                            android:textStyle="bold"
+                            app:cornerRadius="8dp" />
                     </LinearLayout>
 
                     <TextView
@@ -299,39 +305,45 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
-                        android:gravity="center_vertical"
+                        android:gravity="start|center_vertical"
                         android:orientation="horizontal">
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btnRetryDelayMinus"
-                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            style="@style/Widget.Material3.Button.TextButton"
                             android:layout_width="48dp"
-                            android:layout_height="wrap_content"
+                            android:layout_height="48dp"
                             android:insetTop="0dp"
                             android:insetBottom="0dp"
                             android:minWidth="48dp"
-                            android:text="@string/btn_minus"
-                            android:textSize="18sp" />
+                            android:padding="0dp"
+                            android:text="-"
+                            android:textSize="28sp"
+                            android:textStyle="bold"
+                            app:cornerRadius="8dp" />
 
                         <TextView
                             android:id="@+id/retryDelayValue"
-                            android:layout_width="0dp"
+                            android:layout_width="72dp"
                             android:layout_height="wrap_content"
-                            android:layout_weight="1"
+                            android:layout_marginHorizontal="20dp"
                             android:gravity="center"
                             android:textAppearance="?attr/textAppearanceTitleMedium"
                             tools:text="5 s" />
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btnRetryDelayPlus"
-                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            style="@style/Widget.Material3.Button.TextButton"
                             android:layout_width="48dp"
-                            android:layout_height="wrap_content"
+                            android:layout_height="48dp"
                             android:insetTop="0dp"
                             android:insetBottom="0dp"
                             android:minWidth="48dp"
-                            android:text="@string/btn_plus"
-                            android:textSize="18sp" />
+                            android:padding="0dp"
+                            android:text="+"
+                            android:textSize="28sp"
+                            android:textStyle="bold"
+                            app:cornerRadius="8dp" />
                     </LinearLayout>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
