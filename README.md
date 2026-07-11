@@ -1,6 +1,6 @@
 # WiFi VPN
 
-**Version 1.1.1**
+**Version 1.2**
 
 Android app that monitors **trusted Wi‑Fi networks** in the background and automatically controls a **WireGuard** tunnel:
 
@@ -13,11 +13,18 @@ Built with **Kotlin + Jetpack** (Foreground Service, ConnectivityManager, DataSt
 
 ## Changelog
 
+### 1.2
+
+- **Configuration** extras: **Grant VPN permission**, **Battery optimization** (allow background usage), and **Manage app if unused** (matches system toggle; leave off for reliable monitoring)
+- Main screen simplified to status + start/stop monitoring
+- **Quick Settings tile**: monochrome white-on-transparent icon; **label** shows tunnel name from the loaded config file; subtitle shows monitoring status
+- Tile updates whenever QS is open (non-active `TileService`); note: **wide** tile size is set by the user in system QS edit (apps cannot force default width)
+- VPN permission dialogs and messaging remain on the Configuration path
+
 ### 1.1.1
 
-- **Quick Settings tile** icon is a proper white-on-transparent vector (24×24dp) so the system no longer renders a solid white square
-- Tile glyph enlarged to fill the standard QS icon area better
-- Note: tile **width** (small vs wide) is controlled by the system / user (e.g. Android 16 QS edit), not by the app
+- **Quick Settings tile** icon fixed as monochrome white-on-transparent (avoids solid white square)
+- Note: tile **width** (small vs wide) is controlled by the system / user
 
 ### 1.1
 
@@ -37,11 +44,11 @@ Built with **Kotlin + Jetpack** (Foreground Service, ConnectivityManager, DataSt
 | **`release/1.0`** | Stable **v1.0** release line (bugfixes only if needed) |
 | **`main`** | Ongoing development for future versions |
 
-Tags: `v1.0` / `v1.1` / `v1.1.1` mark release points.
+Tags: `v1.0` / `v1.1` / `v1.1.1` / `v1.2` mark release points.
 
 ## Features
 
-- **Configuration** page for WireGuard config, trusted networks, app exclusions, and auto-start
+- **Configuration** page for WireGuard config, trusted networks, app exclusions, VPN permission, battery optimization, unused-app setting, and auto-start
 - **Trusted Wi‑Fi list** — add SSIDs manually or from the current network; VPN turns off only on those networks
 - **Foreground service** with a persistent status notification while monitoring
 - **WireGuard** tunnel via the userspace Go backend (`GoBackend$VpnService`)
@@ -49,8 +56,9 @@ Tags: `v1.0` / `v1.1` / `v1.1.1` mark release points.
 - **Exclude apps** from the VPN (e.g. Android Auto); multi-select list with search
 - VPN connect **retries** (up to 3 attempts, 5s apart) with progress in the notification
 - **Auto-start after reboot** (optional switch; requires config + at least one trusted SSID)
-- **Quick Settings tile** to start/stop monitoring
-- Grant VPN permission, location / nearby Wi‑Fi permission (needed to read SSIDs), and notification permission
+- **Battery optimization** exemption request and **Manage app if unused** shortcut (system settings)
+- **Quick Settings tile** to start/stop monitoring (label = tunnel/config name when loaded)
+- Location / nearby Wi‑Fi permission (needed to read SSIDs), and notification permission
 - **Screen off / locked** — monitor keeps a correct trusted/untrusted decision when the system redacts the SSID; VPN still turns on after leaving trusted Wi‑Fi
 
 ## Requirements
@@ -98,7 +106,7 @@ After a successful `assembleRelease`:
 app/build/outputs/apk/release/wifi-vpn-release.apk
 ```
 
-Current release: **1.1.1** (`versionCode` 3). APKs are gitignored; build them locally (or from CI) with the project keystore.
+Current release: **1.2** (`versionCode` 4). APKs are gitignored; build them locally (or from CI) with the project keystore.
 
 ## Setup
 
@@ -121,9 +129,9 @@ PersistentKeepalive = 25
 ```
 
 5. Still in **Configuration**, add at least one **trusted Wi‑Fi** (type the SSID or use **Add current network**). Grant location / nearby Wi‑Fi permission if prompted.
-6. Optionally choose **Exclude applications from VPN** and enable **Auto-start after reboot**.
-7. On the main screen, tap **Grant VPN permission** once (system dialog).
-8. Tap **Start monitoring**. Optionally add the **WiFi VPN** Quick Settings tile.
+6. Optionally choose **Exclude applications from VPN**.
+7. Tap **Grant VPN permission** (system dialog). Enable **Battery optimization** exemption and leave **Manage app if unused** off for reliable background work. Optionally enable **Auto-start after reboot**.
+8. On the main screen, tap **Start monitoring**. Optionally add the **WiFi VPN** Quick Settings tile (on Android 16, make the tile **wide** in QS edit if you want the tunnel name visible next to the icon).
 
 ## How it works
 

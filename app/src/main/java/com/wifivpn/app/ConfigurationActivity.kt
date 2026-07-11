@@ -1,12 +1,16 @@
 package com.wifivpn.app
 
 import android.Manifest
+import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.OpenableColumns
+import android.provider.Settings
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.widget.Toast
@@ -16,20 +20,27 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.wifivpn.app.databinding.ActivityConfigurationBinding
 import com.wifivpn.app.databinding.ItemWifiSsidBinding
 import com.wifivpn.app.network.WifiConnectivityMonitor
+import com.wifivpn.app.tile.MonitorTileService
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 /**
- * App settings: WireGuard config, trusted Wi‑Fi, VPN exclusions, auto-start.
+ * App settings: WireGuard config, trusted Wi‑Fi, VPN exclusions,
+ * VPN permission, battery / unused-app background settings, auto-start.
  */
 class ConfigurationActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityConfigurationBinding
     private val app get() = application as WifiVpnApp
     private lateinit var wifiMonitor: WifiConnectivityMonitor
+
+    /** Avoid reacting while we sync switch UI from system state. */
+    private var syncingBatterySwitch = false
+    private var syncingUnusedSwitch = false
 
     private val openConfigLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -46,6 +57,48 @@ class ConfigurationActivity : AppCompatActivity() {
         if (!granted) {
             toast(getString(R.string.msg_location_permission_needed))
         }
+    }
+
+    private val vpnPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val resultCode = result.resultCode
+        val stillNeedsPermission = app.wireGuardManager.prepareVpnPermission() != null
+        Log.i(
+            TAG,
+            "VPN permission activity result: resultCode=$resultCode " +
+                "(${resultCodeLabel(resultCode)}), stillNeedsPermission=$stillNeedsPermission"
+        )
+        updateVpnPermissionButton()
+        when {
+            resultCode == RESULT_OK && !stillNeedsPermission -> {
+                toast(getString(R.string.msg_vpn_permission_granted))
+            }
+            resultCode == RESULT_OK && stillNeedsPermission -> {
+                showInfoDialog(
+                    R.string.msg_vpn_permission_title,
+                    getString(R.string.msg_vpn_permission_still_missing)
+                )
+            }
+            else -> {
+                showInfoDialog(
+                    R.string.msg_vpn_permission_title,
+                    getString(R.string.msg_vpn_permission_denied)
+                )
+            }
+        }
+    }
+
+    private val batteryOptLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        refreshBatteryOptimizationSwitch()
+    }
+
+    private val unusedAppLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        refreshUnusedAppSwitch()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -71,6 +124,15 @@ class ConfigurationActivity : AppCompatActivity() {
         binding.btnAddCurrentWifi.setOnClickListener { addCurrentSsid() }
         binding.btnChooseExcludedApps.setOnClickListener {
             startActivity(Intent(this, ExcludeAppsActivity::class.java))
+        }
+        binding.btnVpnPermission.setOnClickListener { requestVpnPermission() }
+        binding.switchBatteryOptimization.setOnCheckedChangeListener { button, isChecked ->
+            if (!button.isPressed || syncingBatterySwitch) return@setOnCheckedChangeListener
+            onBatteryOptimizationToggled(isChecked)
+        }
+        binding.switchManageUnused.setOnCheckedChangeListener { button, isChecked ->
+            if (!button.isPressed || syncingUnusedSwitch) return@setOnCheckedChangeListener
+            onManageUnusedToggled(isChecked)
         }
         binding.switchAutoStart.setOnCheckedChangeListener { button, isChecked ->
             if (!button.isPressed) return@setOnCheckedChangeListener
@@ -108,14 +170,189 @@ class ConfigurationActivity : AppCompatActivity() {
                 }
             }
         }
+
+        updateVpnPermissionButton()
+        refreshBatteryOptimizationSwitch()
+        refreshUnusedAppSwitch()
     }
 
     override fun onResume() {
         super.onResume()
+        updateVpnPermissionButton()
+        refreshBatteryOptimizationSwitch()
+        refreshUnusedAppSwitch()
         lifecycleScope.launch {
             renderExcludedApps(app.configRepository.getExcludedApps())
             renderTrustedWifi(app.configRepository.getTrustedWifiSsids())
         }
+    }
+
+    private fun requestVpnPermission() {
+        val prepare = app.wireGuardManager.prepareVpnPermission()
+        if (prepare == null) {
+            Log.i(TAG, "VPN permission already granted (prepare returned null)")
+            toast(getString(R.string.msg_vpn_permission_already_granted))
+            updateVpnPermissionButton()
+            return
+        }
+
+        Log.i(
+            TAG,
+            "Launching VPN permission dialog: action=${prepare.action}, " +
+                "component=${prepare.component}"
+        )
+        try {
+            vpnPermissionLauncher.launch(prepare)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to launch VPN permission intent", e)
+            showInfoDialog(
+                R.string.msg_vpn_permission_title,
+                getString(
+                    R.string.msg_vpn_permission_launch_failed,
+                    e.message ?: e.javaClass.simpleName
+                )
+            )
+        }
+    }
+
+    private fun updateVpnPermissionButton() {
+        val needs = app.wireGuardManager.prepareVpnPermission() != null
+        binding.btnVpnPermission.isEnabled = needs
+        binding.btnVpnPermission.alpha = if (needs) 1f else 0.5f
+        Log.d(TAG, "VPN permission button needsGrant=$needs")
+    }
+
+    private fun isIgnoringBatteryOptimizations(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return true
+        val pm = getSystemService(PowerManager::class.java) ?: return false
+        return pm.isIgnoringBatteryOptimizations(packageName)
+    }
+
+    private fun refreshBatteryOptimizationSwitch() {
+        val exempt = isIgnoringBatteryOptimizations()
+        syncingBatterySwitch = true
+        binding.switchBatteryOptimization.isChecked = exempt
+        syncingBatterySwitch = false
+    }
+
+    private fun onBatteryOptimizationToggled(wantExempt: Boolean) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            refreshBatteryOptimizationSwitch()
+            return
+        }
+        val currentlyExempt = isIgnoringBatteryOptimizations()
+        if (wantExempt == currentlyExempt) return
+
+        if (wantExempt) {
+            try {
+                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                    data = Uri.parse("package:$packageName")
+                }
+                batteryOptLauncher.launch(intent)
+                toast(getString(R.string.msg_battery_opt_on))
+            } catch (e: Exception) {
+                Log.e(TAG, "Battery optimization request failed", e)
+                // Fallback: full list of battery-optimized apps
+                try {
+                    batteryOptLauncher.launch(
+                        Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                    )
+                } catch (e2: Exception) {
+                    Log.e(TAG, "Battery settings open failed", e2)
+                    toast(getString(R.string.msg_battery_opt_open_failed))
+                }
+                refreshBatteryOptimizationSwitch()
+            }
+        } else {
+            // Cannot revoke exemption programmatically; open system settings.
+            try {
+                batteryOptLauncher.launch(
+                    Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                )
+                toast(getString(R.string.msg_battery_opt_off))
+            } catch (e: Exception) {
+                Log.e(TAG, "Battery settings open failed", e)
+                toast(getString(R.string.msg_battery_opt_open_failed))
+            }
+            refreshBatteryOptimizationSwitch()
+        }
+    }
+
+    /**
+     * Whether the system “Manage app if unused” style restrictions are **enabled**
+     * for this package (same polarity as the system toggle).
+     *
+     * AndroidX / platform: restrictions enabled ⇔ NOT auto-revoke-whitelisted.
+     * Whitelisted = user/system exempted the app (manage-if-unused effectively off).
+     */
+    private fun isManageUnusedEnabledInSystem(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return false
+        return try {
+            // true → exempt from auto-revoke / unused restrictions
+            val exempt = packageManager.isAutoRevokeWhitelisted
+            !exempt
+        } catch (e: Exception) {
+            Log.w(TAG, "isAutoRevokeWhitelisted failed", e)
+            // Unknown — do not claim a false "off"
+            true
+        }
+    }
+
+    private fun refreshUnusedAppSwitch() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            binding.switchManageUnused.isEnabled = false
+            syncingUnusedSwitch = true
+            binding.switchManageUnused.isChecked = false
+            syncingUnusedSwitch = false
+            return
+        }
+        val manageOn = isManageUnusedEnabledInSystem()
+        syncingUnusedSwitch = true
+        binding.switchManageUnused.isChecked = manageOn
+        syncingUnusedSwitch = false
+        Log.d(TAG, "Manage app if unused (system)=$manageOn")
+    }
+
+    private fun onManageUnusedToggled(wantManageOn: Boolean) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            toast(getString(R.string.msg_manage_unused_unavailable))
+            refreshUnusedAppSwitch()
+            return
+        }
+        // Cannot change this from a normal app — always open the system screen.
+        // Revert the switch to the real system value until the user returns.
+        refreshUnusedAppSwitch()
+        openUnusedAppRestrictionsSettings()
+        toast(getString(R.string.msg_manage_unused_open))
+    }
+
+    private fun openUnusedAppRestrictionsSettings() {
+        val candidates = buildList {
+            // Permission controller “unused app” / auto-revoke screen
+            add(
+                Intent("android.intent.action.AUTO_REVOKE_PERMISSIONS").apply {
+                    data = Uri.fromParts("package", packageName, null)
+                }
+            )
+            // App info (contains “Manage app if unused” on Pixel / AOSP)
+            add(
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = Uri.fromParts("package", packageName, null)
+                }
+            )
+        }
+        for (intent in candidates) {
+            try {
+                if (intent.resolveActivity(packageManager) != null) {
+                    unusedAppLauncher.launch(intent)
+                    return
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Unused-app intent failed: ${intent.action}", e)
+            }
+        }
+        toast(getString(R.string.msg_manage_unused_open_failed))
+        refreshUnusedAppSwitch()
     }
 
     private fun importConfigFromUri(uri: Uri) {
@@ -145,6 +382,7 @@ class ConfigurationActivity : AppCompatActivity() {
                     )
                 }
                 app.configRepository.setWireGuardConfig(raw, fileName)
+                MonitorTileService.requestUpdate(this@ConfigurationActivity)
                 toast(getString(R.string.msg_config_saved))
             } catch (e: Exception) {
                 toast(getString(R.string.msg_config_read_failed, e.message ?: "error"))
@@ -166,6 +404,7 @@ class ConfigurationActivity : AppCompatActivity() {
     private fun clearConfig() {
         lifecycleScope.launch {
             app.configRepository.clearWireGuardConfig()
+            MonitorTileService.requestUpdate(this@ConfigurationActivity)
             toast(getString(R.string.msg_config_cleared))
         }
     }
@@ -291,5 +530,25 @@ class ConfigurationActivity : AppCompatActivity() {
 
     private fun toast(msg: String) {
         Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun showInfoDialog(titleRes: Int, message: String) {
+        if (isFinishing || isDestroyed) return
+        MaterialAlertDialogBuilder(this)
+            .setTitle(titleRes)
+            .setMessage(message)
+            .setPositiveButton(R.string.btn_ok, null)
+            .show()
+    }
+
+    private fun resultCodeLabel(resultCode: Int): String = when (resultCode) {
+        Activity.RESULT_OK -> "RESULT_OK"
+        Activity.RESULT_CANCELED -> "RESULT_CANCELED"
+        Activity.RESULT_FIRST_USER -> "RESULT_FIRST_USER"
+        else -> "UNKNOWN"
+    }
+
+    companion object {
+        private const val TAG = "ConfigurationActivity"
     }
 }

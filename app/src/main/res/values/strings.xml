@@ -73,6 +73,17 @@
     <string name="auto_start_help">When enabled, monitoring starts in the background after the phone reboots (requires config and trusted Wi‑Fi).</string>
     <string name="msg_auto_start_on">Auto-start enabled</string>
     <string name="msg_auto_start_off">Auto-start disabled</string>
+    <string name="label_battery_optimization">Battery optimization</string>
+    <string name="battery_optimization_help">When on, the app is exempt from battery optimization (Allow background usage) so monitoring is less likely to be stopped.</string>
+    <string name="msg_battery_opt_on">Battery optimization exemption requested</string>
+    <string name="msg_battery_opt_off">Open system settings to turn battery optimization back on for this app if needed</string>
+    <string name="msg_battery_opt_open_failed">Could not open battery optimization settings</string>
+    <string name="label_manage_unused">Manage app if unused</string>
+    <string name="manage_unused_help">Matches the system setting. Leave this off so Android does not pause the app or remove permissions when it looks unused — needed for reliable background monitoring.</string>
+    <string name="msg_manage_unused_open">Change “Manage app if unused” in the system screen, then return here. Leave it off for background monitoring.</string>
+    <string name="msg_manage_unused_unavailable">This setting is not available on this device</string>
+    <string name="msg_manage_unused_open_failed">Could not open unused-app settings</string>
+    <string name="msg_vpn_open_configuration">Grant VPN permission in Configuration first</string>
     <string name="tile_label">WiFi VPN</string>
     <string name="tile_subtitle_on">Monitoring on</string>
     <string name="tile_subtitle_off">Monitoring off</string>

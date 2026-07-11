@@ -1,7 +1,6 @@
 package com.wifivpn.app
 
 import android.Manifest
-import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -19,6 +18,7 @@ import com.wifivpn.app.databinding.ActivityMainBinding
 import com.wifivpn.app.databinding.DialogAboutBinding
 import com.wifivpn.app.network.WifiConnectivityMonitor
 import com.wifivpn.app.service.WifiMonitorService
+import com.wifivpn.app.tile.MonitorTileService
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
@@ -27,38 +27,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private val app get() = application as WifiVpnApp
     private lateinit var wifiMonitor: WifiConnectivityMonitor
-
-    private val vpnPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        val resultCode = result.resultCode
-        val stillNeedsPermission = app.wireGuardManager.prepareVpnPermission() != null
-        Log.i(
-            TAG,
-            "VPN permission activity result: resultCode=$resultCode " +
-                "(${resultCodeLabel(resultCode)}), data=${result.data}, " +
-                "stillNeedsPermission=$stillNeedsPermission"
-        )
-        updateVpnPermissionButton()
-        when {
-            resultCode == RESULT_OK && !stillNeedsPermission -> {
-                toast(getString(R.string.msg_vpn_permission_granted))
-            }
-            resultCode == RESULT_OK && stillNeedsPermission -> {
-                // Rare: system said OK but prepare() still returns an Intent
-                showInfoDialog(
-                    R.string.msg_vpn_permission_title,
-                    getString(R.string.msg_vpn_permission_still_missing)
-                )
-            }
-            else -> {
-                showInfoDialog(
-                    R.string.msg_vpn_permission_title,
-                    getString(R.string.msg_vpn_permission_denied)
-                )
-            }
-        }
-    }
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -87,7 +55,6 @@ class MainActivity : AppCompatActivity() {
         requestNotificationPermissionIfNeeded()
         requestSsidPermissionsIfNeeded()
 
-        binding.btnVpnPermission.setOnClickListener { requestVpnPermission() }
         binding.btnToggleMonitoring.setOnClickListener { toggleMonitoring() }
         binding.linkConfiguration.setOnClickListener {
             startActivity(Intent(this, ConfigurationActivity::class.java))
@@ -103,16 +70,15 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-
-        updateVpnPermissionButton()
     }
 
     override fun onResume() {
         super.onResume()
-        updateVpnPermissionButton()
         if (!WifiMonitorService.uiState.value.monitoring) {
             refreshWifiStatusHint()
         }
+        // Keep QS tile label (tunnel name) in sync when returning to the app
+        MonitorTileService.requestUpdate(this)
     }
 
     private fun refreshWifiStatusHint() {
@@ -222,41 +188,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun requestVpnPermission() {
-        val prepare = app.wireGuardManager.prepareVpnPermission()
-        if (prepare == null) {
-            Log.i(TAG, "VPN permission already granted (prepare returned null)")
-            toast(getString(R.string.msg_vpn_permission_already_granted))
-            updateVpnPermissionButton()
-            return
-        }
-
-        Log.i(
-            TAG,
-            "Launching VPN permission dialog: action=${prepare.action}, " +
-                "component=${prepare.component}, extras=${prepare.extras?.keySet()}"
-        )
-        try {
-            vpnPermissionLauncher.launch(prepare)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to launch VPN permission intent", e)
-            showInfoDialog(
-                R.string.msg_vpn_permission_title,
-                getString(
-                    R.string.msg_vpn_permission_launch_failed,
-                    e.message ?: e.javaClass.simpleName
-                )
-            )
-        }
-    }
-
-    private fun updateVpnPermissionButton() {
-        val needs = app.wireGuardManager.prepareVpnPermission() != null
-        binding.btnVpnPermission.isEnabled = needs
-        binding.btnVpnPermission.alpha = if (needs) 1f else 0.5f
-        Log.d(TAG, "VPN permission button needsGrant=$needs")
-    }
-
     private fun toggleMonitoring() {
         val running = WifiMonitorService.uiState.value.monitoring ||
             WifiMonitorService.instance != null
@@ -296,8 +227,8 @@ class MainActivity : AppCompatActivity() {
 
             if (app.wireGuardManager.prepareVpnPermission() != null) {
                 Log.i(TAG, "Start monitoring blocked: VPN permission not granted yet")
-                toast(getString(R.string.msg_vpn_permission_needed))
-                requestVpnPermission()
+                toast(getString(R.string.msg_vpn_open_configuration))
+                startActivity(Intent(this@MainActivity, ConfigurationActivity::class.java))
                 return@launch
             }
 
@@ -336,23 +267,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun toast(msg: String) {
         Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
-    }
-
-    /** Full-screen-safe message; toasts truncate long text on many devices. */
-    private fun showInfoDialog(titleRes: Int, message: String) {
-        if (isFinishing || isDestroyed) return
-        MaterialAlertDialogBuilder(this)
-            .setTitle(titleRes)
-            .setMessage(message)
-            .setPositiveButton(R.string.btn_ok, null)
-            .show()
-    }
-
-    private fun resultCodeLabel(resultCode: Int): String = when (resultCode) {
-        Activity.RESULT_OK -> "RESULT_OK"
-        Activity.RESULT_CANCELED -> "RESULT_CANCELED"
-        Activity.RESULT_FIRST_USER -> "RESULT_FIRST_USER"
-        else -> "UNKNOWN"
     }
 
     companion object {
