@@ -223,12 +223,23 @@ class WifiMonitorService : LifecycleService() {
 
     private fun startAsForeground(content: String) {
         val notification = buildNotification(content)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+        // location: SSID is location-sensitive; keeps reads working with screen off while
+        // the monitor FGS is running (while-in-use location permission is enough).
+        // specialUse: declared purpose of continuous Wi‑Fi / VPN policy monitoring (API 34+).
+        val fgsType = when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE ->
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION or
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q ->
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+            else -> 0
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ServiceCompat.startForeground(
                 this,
                 WifiVpnApp.NOTIFICATION_ID,
                 notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                fgsType
             )
         } else {
             startForeground(WifiVpnApp.NOTIFICATION_ID, notification)

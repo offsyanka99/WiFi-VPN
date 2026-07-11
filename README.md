@@ -1,5 +1,7 @@
 # WiFi VPN
 
+**Version 1.0**
+
 Android app that monitors **trusted Wi‑Fi networks** in the background and automatically controls a **WireGuard** tunnel:
 
 | Network state | VPN action |
@@ -9,6 +11,15 @@ Android app that monitors **trusted Wi‑Fi networks** in the background and aut
 
 Built with **Kotlin + Jetpack** (Foreground Service, ConnectivityManager, DataStore, Material 3) and the official WireGuard tunnel library (`com.wireguard.android:tunnel`).
 
+## Branches
+
+| Branch | Purpose |
+|--------|---------|
+| **`release/1.0`** | Stable **v1.0** release line (bugfixes only if needed) |
+| **`main`** | Ongoing development for future versions |
+
+Tags: `v1.0` marks the 1.0 release point.
+
 ## Features
 
 - **Trusted Wi‑Fi list** — add SSIDs manually or from the current network; VPN turns off only on those networks
@@ -16,10 +27,11 @@ Built with **Kotlin + Jetpack** (Foreground Service, ConnectivityManager, DataSt
 - **WireGuard** tunnel via the userspace Go backend (`GoBackend$VpnService`)
 - Load config from a `.conf` file (system file picker); stored in DataStore
 - **Exclude apps** from the VPN (e.g. Android Auto); multi-select list with search
-- VPN connect **retries** (up to 5 attempts, 5s apart) with progress in the notification
+- VPN connect **retries** (up to 3 attempts, 5s apart) with progress in the notification
 - **Auto-start after reboot** (optional switch; requires config + at least one trusted SSID)
 - **Quick Settings tile** to start/stop monitoring
 - Grant VPN permission, location / nearby Wi‑Fi permission (needed to read SSIDs), and notification permission
+- **Screen off / locked** — monitor keeps a correct trusted/untrusted decision when the system redacts the SSID; VPN still turns on after leaving trusted Wi‑Fi
 
 ## Requirements
 
@@ -55,7 +67,18 @@ Release builds use signing from `keystore.properties` (see `app/build.gradle.kts
 ```bash
 ./gradlew assembleRelease
 # APK: app/build/outputs/apk/release/wifi-vpn-release.apk
+adb install -r app/build/outputs/apk/release/wifi-vpn-release.apk
 ```
+
+### Install v1.0 release APK
+
+After a successful `assembleRelease`:
+
+```text
+app/build/outputs/apk/release/wifi-vpn-release.apk
+```
+
+APKs are gitignored; build them locally (or from CI) with the project keystore.
 
 ## Setup
 
@@ -105,6 +128,11 @@ Policy (see `WifiMonitorService`):
 
 WireGuard uses the official userspace Go backend (`GoBackend$VpnService`). Preferences (config, trusted SSIDs, exclusions, auto-start, monitoring flag) live in **DataStore**.
 
+SSID detection notes:
+
+- The monitor service uses foreground-service types **`location|specialUse`** so SSID can still be read while the screen is off (while-in-use location permission).
+- If the OS redacts the SSID on lock, the last known name is reused **only** while still associated to the same network (`networkId` / BSSID, supplicant `COMPLETED`). Cache is dropped on disconnect or network change so VPN turns on promptly when you leave trusted Wi‑Fi.
+
 ## Permissions
 
 | Permission | Why |
@@ -113,7 +141,7 @@ WireGuard uses the official userspace Go backend (`GoBackend$VpnService`). Prefe
 | `ACCESS_NETWORK_STATE` / `ACCESS_WIFI_STATE` | Detect Wi‑Fi |
 | `ACCESS_FINE_LOCATION` / `ACCESS_COARSE_LOCATION` | Read current SSID (Android requirement) |
 | `NEARBY_WIFI_DEVICES` | Read SSID on Android 13+ without full location use |
-| `FOREGROUND_SERVICE` / `FOREGROUND_SERVICE_SPECIAL_USE` | Keep monitor alive |
+| `FOREGROUND_SERVICE` / `FOREGROUND_SERVICE_LOCATION` / `FOREGROUND_SERVICE_SPECIAL_USE` | Keep monitor alive; location type so SSID remains readable with screen off |
 | `POST_NOTIFICATIONS` | Status notification (Android 13+) |
 | `RECEIVE_BOOT_COMPLETED` | Resume monitoring after reboot when auto-start is on |
 | `WAKE_LOCK` | Reliable service work around sleep |

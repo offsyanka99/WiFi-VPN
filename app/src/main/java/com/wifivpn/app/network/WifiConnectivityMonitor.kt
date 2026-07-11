@@ -30,6 +30,11 @@ import kotlinx.coroutines.flow.distinctUntilChanged
  * On Android 12+ (API 31), [ConnectivityManager.NetworkCallback.FLAG_INCLUDE_LOCATION_INFO]
  * is required to obtain SSID from network capabilities. Without it, SSID stays unknown
  * after network switches and trusted-Wi‑Fi detection fails.
+ *
+ * When the screen is locked, the platform often redacts SSID ("unknown ssid") even if
+ * Wi‑Fi stays associated. We keep a last-known SSID **only for the same association key**
+ * (networkId / BSSID) while supplicant is still COMPLETED — never after disconnect or a
+ * network change.
  */
 class WifiConnectivityMonitor(private val context: Context) {
 
@@ -39,6 +44,14 @@ class WifiConnectivityMonitor(private val context: Context) {
     private val wifiManager =
         appContext.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    /** Last readable SSID for [cachedAssociationKey]; only used while that association is live. */
+    @Volatile
+    private var cachedSsid: String? = null
+
+    /** Association key (networkId or BSSID) that [cachedSsid] belongs to. */
+    @Volatile
+    private var cachedAssociationKey: String? = null
 
     data class WifiSnapshot(
         /** Any Wi‑Fi transport with internet is up. */
@@ -53,8 +66,9 @@ class WifiConnectivityMonitor(private val context: Context) {
         for (network in connectivityManager.allNetworks) {
             if (isWifiNetwork(network)) return true
         }
-        // Fallback: Wi‑Fi manager association (helps when caps lag under VPN)
-        return isWifiManagerConnected()
+        // Fallback: real association only (helps when caps lag under VPN). Do not treat a
+        // stale networkId as connected — that kept VPN off after leaving Wi‑Fi.
+        return isWifiManagerAssociated()
     }
 
     private fun isWifiNetwork(network: Network): Boolean {
@@ -62,12 +76,17 @@ class WifiConnectivityMonitor(private val context: Context) {
         return caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
     }
 
+    /**
+     * True only when the Wi‑Fi stack reports a completed association.
+     * `networkId != -1` alone is not enough — it can linger after disconnect.
+     */
     @Suppress("DEPRECATION")
-    private fun isWifiManagerConnected(): Boolean {
+    private fun isWifiManagerAssociated(): Boolean {
         return try {
-            wifiManager.isWifiEnabled &&
-                wifiManager.connectionInfo != null &&
-                wifiManager.connectionInfo.networkId != -1
+            if (!wifiManager.isWifiEnabled) return false
+            val info = wifiManager.connectionInfo ?: return false
+            if (info.networkId == -1) return false
+            info.supplicantState == android.net.wifi.SupplicantState.COMPLETED
         } catch (_: Exception) {
             false
         }
@@ -75,6 +94,8 @@ class WifiConnectivityMonitor(private val context: Context) {
 
     /**
      * Best-effort current SSID from several sources (needed when VPN is the default network).
+     * Falls back to the last known SSID only when still fully associated to the **same**
+     * network (matching association key). Never reuses a name across disconnects or roams.
      */
     fun currentSsid(): String? {
         if (!hasSsidPermission()) {
@@ -82,6 +103,53 @@ class WifiConnectivityMonitor(private val context: Context) {
             return null
         }
 
+        val associationKey = wifiAssociationKey()
+        val live = readLiveSsid()
+
+        if (live != null) {
+            if (associationKey != null) {
+                cachedSsid = live
+                cachedAssociationKey = associationKey
+            } else {
+                // Readable SSID but no stable key — do not keep a sticky cache entry
+                clearSsidCache()
+            }
+            return live
+        }
+
+        // Live SSID redacted (e.g. screen locked). Reuse only with matching association key
+        // and an actual completed association — never when key is missing (that hid disconnects).
+        val cached = cachedSsid
+        val cachedKey = cachedAssociationKey
+        if (cached == null || cachedKey == null) {
+            return null
+        }
+        if (!isWifiManagerAssociated()) {
+            Log.i(TAG, "SSID redacted and not associated; drop cache")
+            clearSsidCache()
+            return null
+        }
+        if (associationKey == null) {
+            // Cannot prove we are still on the same network — fail closed (VPN may turn on)
+            Log.i(TAG, "SSID redacted and association key unavailable; not using cache")
+            return null
+        }
+        if (associationKey != cachedKey) {
+            Log.i(
+                TAG,
+                "Association changed ($cachedKey → $associationKey) with SSID redacted; drop cache"
+            )
+            clearSsidCache()
+            return null
+        }
+        Log.i(
+            TAG,
+            "SSID redacted; using cached ssid=$cached for association=$associationKey"
+        )
+        return cached
+    }
+
+    private fun readLiveSsid(): String? {
         // 1) Prefer Wi‑Fi NetworkCapabilities.transportInfo (works better with VPN default route)
         for (network in connectivityManager.allNetworks) {
             val caps = connectivityManager.getNetworkCapabilities(network) ?: continue
@@ -121,14 +189,67 @@ class WifiConnectivityMonitor(private val context: Context) {
         }
     }
 
+    /**
+     * Stable key for the current Wi‑Fi association. Only returned when supplicant is COMPLETED
+     * so a stale post-disconnect networkId cannot keep the trusted-SSID cache alive.
+     */
+    @Suppress("DEPRECATION")
+    private fun wifiAssociationKey(): String? {
+        if (!isWifiManagerAssociated()) return null
+        // Prefer WifiManager first — still populated when capabilities redact transportInfo
+        associationKeyFromWifiInfo(runCatching { wifiManager.connectionInfo }.getOrNull())
+            ?.let { return it }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            for (network in connectivityManager.allNetworks) {
+                val caps = connectivityManager.getNetworkCapabilities(network) ?: continue
+                if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) continue
+                val info = caps.transportInfo as? WifiInfo
+                associationKeyFromWifiInfo(info)?.let { return it }
+            }
+        }
+        return null
+    }
+
+    @Suppress("DEPRECATION")
+    private fun associationKeyFromWifiInfo(info: WifiInfo?): String? {
+        if (info == null) return null
+        return try {
+            if (info.networkId != -1) {
+                return "nid:${info.networkId}"
+            }
+            val bssid = info.bssid
+            if (!bssid.isNullOrBlank() &&
+                !bssid.equals("02:00:00:00:00:00", ignoreCase = true)
+            ) {
+                return "bssid:${bssid.lowercase()}"
+            }
+            null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun clearSsidCache() {
+        cachedSsid = null
+        cachedAssociationKey = null
+    }
+
     fun snapshot(trustedSsids: Set<String>): WifiSnapshot {
         val connected = isWifiConnected()
-        val ssid = if (connected) currentSsid() else null
-        val onTrusted = connected &&
-            ssid != null &&
+        if (!connected) {
+            clearSsidCache()
+            return WifiSnapshot(
+                wifiConnected = false,
+                ssid = null,
+                onTrustedWifi = false
+            )
+        }
+        val ssid = currentSsid()
+        val onTrusted = ssid != null &&
             trustedSsids.any { it.equals(ssid, ignoreCase = true) }
         return WifiSnapshot(
-            wifiConnected = connected,
+            wifiConnected = true,
             ssid = ssid,
             onTrustedWifi = onTrusted
         )
@@ -227,6 +348,7 @@ class WifiConnectivityMonitor(private val context: Context) {
         val filter = IntentFilter().apply {
             addAction(WifiManager.NETWORK_STATE_CHANGED_ACTION)
             addAction(WifiManager.SUPPLICANT_STATE_CHANGED_ACTION)
+            addAction(WifiManager.WIFI_STATE_CHANGED_ACTION)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             appContext.registerReceiver(wifiReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
