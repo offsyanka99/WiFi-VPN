@@ -5,12 +5,15 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlin.math.max
+import kotlin.math.min
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "wifi_vpn_prefs")
 
@@ -23,6 +26,8 @@ class ConfigRepository(private val context: Context) {
         val autoStartEnabled = booleanPreferencesKey("auto_start_enabled")
         val excludedApps = stringSetPreferencesKey("excluded_apps")
         val trustedWifiSsids = stringSetPreferencesKey("trusted_wifi_ssids")
+        val vpnRetryAttempts = intPreferencesKey("vpn_retry_attempts")
+        val vpnRetryDelaySeconds = intPreferencesKey("vpn_retry_delay_seconds")
     }
 
     val wireGuardConfig: Flow<String> = context.dataStore.data.map { prefs ->
@@ -47,6 +52,14 @@ class ConfigRepository(private val context: Context) {
 
     val trustedWifiSsids: Flow<Set<String>> = context.dataStore.data.map { prefs ->
         prefs[keys.trustedWifiSsids].orEmpty()
+    }
+
+    val vpnRetryAttempts: Flow<Int> = context.dataStore.data.map { prefs ->
+        clampRetryAttempts(prefs[keys.vpnRetryAttempts] ?: DEFAULT_VPN_RETRY_ATTEMPTS)
+    }
+
+    val vpnRetryDelaySeconds: Flow<Int> = context.dataStore.data.map { prefs ->
+        clampRetryDelaySeconds(prefs[keys.vpnRetryDelaySeconds] ?: DEFAULT_VPN_RETRY_DELAY_SECONDS)
     }
 
     suspend fun getWireGuardConfig(): String {
@@ -124,12 +137,49 @@ class ConfigRepository(private val context: Context) {
         }
     }
 
+    suspend fun getVpnRetryAttempts(): Int {
+        val raw = context.dataStore.data.first()[keys.vpnRetryAttempts]
+            ?: DEFAULT_VPN_RETRY_ATTEMPTS
+        return clampRetryAttempts(raw)
+    }
+
+    suspend fun setVpnRetryAttempts(attempts: Int) {
+        context.dataStore.edit { prefs ->
+            prefs[keys.vpnRetryAttempts] = clampRetryAttempts(attempts)
+        }
+    }
+
+    suspend fun getVpnRetryDelaySeconds(): Int {
+        val raw = context.dataStore.data.first()[keys.vpnRetryDelaySeconds]
+            ?: DEFAULT_VPN_RETRY_DELAY_SECONDS
+        return clampRetryDelaySeconds(raw)
+    }
+
+    suspend fun setVpnRetryDelaySeconds(seconds: Int) {
+        context.dataStore.edit { prefs ->
+            prefs[keys.vpnRetryDelaySeconds] = clampRetryDelaySeconds(seconds)
+        }
+    }
+
     /** Ready to run monitor in background (config + at least one trusted SSID). */
     suspend fun canStartMonitoring(): Boolean {
         return getWireGuardConfig().isNotBlank() && getTrustedWifiSsids().isNotEmpty()
     }
 
     companion object {
+        const val DEFAULT_VPN_RETRY_ATTEMPTS = 3
+        const val DEFAULT_VPN_RETRY_DELAY_SECONDS = 5
+        const val MIN_VPN_RETRY_ATTEMPTS = 1
+        const val MAX_VPN_RETRY_ATTEMPTS = 20
+        const val MIN_VPN_RETRY_DELAY_SECONDS = 1
+        const val MAX_VPN_RETRY_DELAY_SECONDS = 120
+
+        fun clampRetryAttempts(value: Int): Int =
+            max(MIN_VPN_RETRY_ATTEMPTS, min(MAX_VPN_RETRY_ATTEMPTS, value))
+
+        fun clampRetryDelaySeconds(value: Int): Int =
+            max(MIN_VPN_RETRY_DELAY_SECONDS, min(MAX_VPN_RETRY_DELAY_SECONDS, value))
+
         fun normalizeSsid(raw: String): String? {
             var s = raw.trim()
             if (s.startsWith("\"") && s.endsWith("\"") && s.length >= 2) {

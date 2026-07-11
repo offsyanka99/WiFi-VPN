@@ -119,8 +119,8 @@ class WifiMonitorService : LifecycleService() {
     }
 
     /**
-     * Tries to bring VPN up to [VPN_MAX_ATTEMPTS] times, waiting [VPN_RETRY_DELAY_MS]
-     * between failed attempts. Shows progress in the UI/notification; final error if all fail.
+     * Tries to bring VPN up using configured attempt count and delay
+     * (Configuration → VPN connection retries).
      */
     private suspend fun bringVpnUpWithRetry(snap: WifiConnectivityMonitor.WifiSnapshot) {
         val config = app.configRepository.getWireGuardConfig()
@@ -140,18 +140,20 @@ class WifiMonitorService : LifecycleService() {
             return
         }
 
+        val maxAttempts = app.configRepository.getVpnRetryAttempts()
+        val delayMs = app.configRepository.getVpnRetryDelaySeconds() * 1000L
         val excluded = app.configRepository.getExcludedApps()
         var lastError: Throwable? = null
 
-        for (attempt in 1..VPN_MAX_ATTEMPTS) {
+        for (attempt in 1..maxAttempts) {
             val progressMsg = if (attempt == 1) {
                 getString(R.string.vpn_connecting)
             } else {
-                getString(R.string.vpn_retry_attempt, attempt, VPN_MAX_ATTEMPTS)
+                getString(R.string.vpn_retry_attempt, attempt, maxAttempts)
             }
             _uiState.value = _uiState.value.copy(vpnActive = false, message = progressMsg)
             updateNotification(progressMsg)
-            Log.i(TAG, "VPN connect attempt $attempt/$VPN_MAX_ATTEMPTS")
+            Log.i(TAG, "VPN connect attempt $attempt/$maxAttempts (delay=${delayMs}ms)")
 
             val result = app.wireGuardManager.setTunnelUp(config, excluded)
             if (result.isSuccess) {
@@ -172,16 +174,17 @@ class WifiMonitorService : LifecycleService() {
                 break
             }
 
-            if (attempt < VPN_MAX_ATTEMPTS) {
+            if (attempt < maxAttempts) {
                 val waitMsg = getString(
                     R.string.vpn_retrying,
                     attempt,
-                    VPN_MAX_ATTEMPTS
+                    maxAttempts,
+                    (delayMs / 1000L).toInt()
                 )
                 _uiState.value = _uiState.value.copy(vpnActive = false, message = waitMsg)
                 updateNotification(waitMsg)
                 try {
-                    delay(VPN_RETRY_DELAY_MS)
+                    delay(delayMs)
                 } catch (e: CancellationException) {
                     Log.i(TAG, "VPN retry cancelled (network decision changed)")
                     throw e
@@ -191,7 +194,7 @@ class WifiMonitorService : LifecycleService() {
 
         val finalMsg = getString(
             R.string.vpn_connect_failed,
-            VPN_MAX_ATTEMPTS,
+            maxAttempts,
             WireGuardManager.formatError(lastError)
         )
         _uiState.value = _uiState.value.copy(vpnActive = false, message = finalMsg)
@@ -322,12 +325,6 @@ class WifiMonitorService : LifecycleService() {
     companion object {
         private const val TAG = "WifiMonitorService"
         const val ACTION_STOP = "com.wifivpn.app.action.STOP_MONITORING"
-
-        /** Max VPN bring-up attempts when not on trusted Wi‑Fi. */
-        private const val VPN_MAX_ATTEMPTS = 3
-
-        /** Delay between failed VPN attempts. */
-        private const val VPN_RETRY_DELAY_MS = 5_000L
 
         @Volatile
         var instance: WifiMonitorService? = null

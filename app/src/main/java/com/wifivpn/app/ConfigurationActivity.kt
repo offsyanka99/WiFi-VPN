@@ -25,6 +25,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.wifivpn.app.data.ConfigRepository
 import com.wifivpn.app.databinding.ActivityConfigurationBinding
 import com.wifivpn.app.databinding.ItemWifiSsidBinding
 import com.wifivpn.app.network.WifiConnectivityMonitor
@@ -45,6 +46,9 @@ class ConfigurationActivity : AppCompatActivity() {
     /** Avoid reacting while we sync switch UI from system state. */
     private var syncingBatterySwitch = false
     private var syncingUnusedSwitch = false
+
+    private var retryAttempts: Int = ConfigRepository.DEFAULT_VPN_RETRY_ATTEMPTS
+    private var retryDelaySeconds: Int = ConfigRepository.DEFAULT_VPN_RETRY_DELAY_SECONDS
 
     private val openConfigLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -132,6 +136,18 @@ class ConfigurationActivity : AppCompatActivity() {
             startActivity(Intent(this, ExcludeAppsActivity::class.java))
         }
         binding.btnVpnPermission.setOnClickListener { requestVpnPermission() }
+        binding.btnRetryAttemptsMinus.setOnClickListener {
+            adjustRetryAttempts(-1)
+        }
+        binding.btnRetryAttemptsPlus.setOnClickListener {
+            adjustRetryAttempts(1)
+        }
+        binding.btnRetryDelayMinus.setOnClickListener {
+            adjustRetryDelay(-1)
+        }
+        binding.btnRetryDelayPlus.setOnClickListener {
+            adjustRetryDelay(1)
+        }
         binding.switchBatteryOptimization.setOnCheckedChangeListener { button, isChecked ->
             if (!button.isPressed || syncingBatterySwitch) return@setOnCheckedChangeListener
             onBatteryOptimizationToggled(isChecked)
@@ -174,12 +190,59 @@ class ConfigurationActivity : AppCompatActivity() {
                         }
                     }
                 }
+                launch {
+                    app.configRepository.vpnRetryAttempts.collectLatest { value ->
+                        retryAttempts = value
+                        renderRetryUi()
+                    }
+                }
+                launch {
+                    app.configRepository.vpnRetryDelaySeconds.collectLatest { value ->
+                        retryDelaySeconds = value
+                        renderRetryUi()
+                    }
+                }
             }
         }
 
         updateVpnPermissionButton()
         refreshBatteryOptimizationSwitch()
         refreshUnusedAppSwitch()
+        renderRetryUi()
+    }
+
+    private fun renderRetryUi() {
+        binding.retryAttemptsValue.text = retryAttempts.toString()
+        binding.retryDelayValue.text =
+            getString(R.string.vpn_retry_delay_value, retryDelaySeconds)
+        binding.btnRetryAttemptsMinus.isEnabled =
+            retryAttempts > ConfigRepository.MIN_VPN_RETRY_ATTEMPTS
+        binding.btnRetryAttemptsPlus.isEnabled =
+            retryAttempts < ConfigRepository.MAX_VPN_RETRY_ATTEMPTS
+        binding.btnRetryDelayMinus.isEnabled =
+            retryDelaySeconds > ConfigRepository.MIN_VPN_RETRY_DELAY_SECONDS
+        binding.btnRetryDelayPlus.isEnabled =
+            retryDelaySeconds < ConfigRepository.MAX_VPN_RETRY_DELAY_SECONDS
+    }
+
+    private fun adjustRetryAttempts(delta: Int) {
+        val next = ConfigRepository.clampRetryAttempts(retryAttempts + delta)
+        if (next == retryAttempts) return
+        retryAttempts = next
+        renderRetryUi()
+        lifecycleScope.launch {
+            app.configRepository.setVpnRetryAttempts(next)
+        }
+    }
+
+    private fun adjustRetryDelay(delta: Int) {
+        val next = ConfigRepository.clampRetryDelaySeconds(retryDelaySeconds + delta)
+        if (next == retryDelaySeconds) return
+        retryDelaySeconds = next
+        renderRetryUi()
+        lifecycleScope.launch {
+            app.configRepository.setVpnRetryDelaySeconds(next)
+        }
     }
 
     override fun onResume() {

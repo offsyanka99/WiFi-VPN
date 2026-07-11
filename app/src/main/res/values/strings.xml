@@ -10,9 +10,25 @@
     <string name="notification_waiting">Monitoring Wi‑Fi…</string>
     <string name="notification_error">Error: %1$s</string>
     <string name="vpn_connecting">Connecting VPN…</string>
-    <string name="vpn_retrying">VPN connect failed — retry %1$d/%2$d in 5s…</string>
+    <string name="vpn_retrying">VPN connect failed — retry %1$d/%2$d in %3$ds…</string>
     <string name="vpn_retry_attempt">Connecting VPN (attempt %1$d of %2$d)…</string>
     <string name="vpn_connect_failed">VPN failed after %1$d attempts: %2$s</string>
+    <string name="label_vpn_retry">VPN connection retries</string>
+    <string name="vpn_retry_help">How many times to try connecting the VPN when not on trusted Wi‑Fi, and how long to wait between attempts.</string>
+    <string name="label_vpn_retry_attempts">Retry attempts</string>
+    <string name="label_vpn_retry_delay">Wait between attempts</string>
+    <string name="vpn_retry_delay_value">%1$d s</string>
+    <string name="btn_plus">+</string>
+    <string name="btn_minus">−</string>
+    <string name="msg_vpn_retry_saved">VPN retry settings saved</string>
+    <string name="notification_channel_alerts_name">Alerts</string>
+    <string name="notification_channel_alerts_desc">Permission and setup warnings</string>
+    <string name="notification_permission_check_title">WiFi VPN permissions</string>
+    <string name="notification_permission_check_body">These were disabled or missing:\n%1$s\n\nOpen the app to fix them.</string>
+    <string name="perm_issue_location">Location / nearby Wi‑Fi (needed to read network names)</string>
+    <string name="perm_issue_notifications">Notifications</string>
+    <string name="perm_issue_vpn">VPN permission</string>
+    <string name="perm_issue_battery">Battery optimization exemption (background usage)</string>
 
     <string name="status_wifi_trusted">Wi‑Fi: trusted (%1$s)</string>
     <string name="status_wifi_other">Wi‑Fi: other network (%1$s)</string>

@@ -1,6 +1,6 @@
 # WiFi VPN
 
-**Version 1.2.2**
+**Version 1.3**
 
 Android app that monitors **trusted Wi‑Fi networks** in the background and automatically controls a **WireGuard** tunnel:
 
@@ -12,6 +12,11 @@ Android app that monitors **trusted Wi‑Fi networks** in the background and aut
 Built with **Kotlin + Jetpack** (Foreground Service, ConnectivityManager, DataStore, Material 3) and the official WireGuard tunnel library (`com.wireguard.android:tunnel`).
 
 ## Changelog
+
+### 1.3
+
+- **VPN connection retries** configurable on the Configuration page (attempts 1–20, delay 1–120s) before the permission section
+- **Weekly permission check** (WorkManager): notifies if location/nearby Wi‑Fi, notifications, VPN permission, or battery exemption is missing or disabled
 
 ### 1.2.2
 
@@ -54,17 +59,18 @@ Built with **Kotlin + Jetpack** (Foreground Service, ConnectivityManager, DataSt
 | **`release/1.0`** | Stable **v1.0** release line (bugfixes only if needed) |
 | **`main`** | Ongoing development for future versions |
 
-Tags: `v1.0` / `v1.1` / `v1.1.1` / `v1.2` / `v1.2.1` / `v1.2.2` mark release points.
+Tags: `v1.0` / `v1.1` / `v1.1.1` / `v1.2` / `v1.2.1` / `v1.2.2` / `v1.3` mark release points.
 
 ## Features
 
-- **Configuration** page for WireGuard config, trusted networks, app exclusions, VPN permission, battery optimization, unused-app setting, and auto-start
+- **Configuration** page for WireGuard config, trusted networks, app exclusions, VPN retries, VPN permission, battery optimization, unused-app setting, and auto-start
 - **Trusted Wi‑Fi list** — add SSIDs manually or from the current network; VPN turns off only on those networks
 - **Foreground service** with a persistent status notification while monitoring
 - **WireGuard** tunnel via the userspace Go backend (`GoBackend$VpnService`)
 - Load config from a `.conf` file (system file picker); stored in DataStore
 - **Exclude apps** from the VPN (e.g. Android Auto); multi-select list with search
-- VPN connect **retries** (up to 3 attempts, 5s apart) with progress in the notification
+- Configurable **VPN connect retries** (attempts + delay) with progress in the notification
+- **Weekly permission check** with alert notification if critical permissions are disabled
 - **Auto-start after reboot** (optional switch; requires config + at least one trusted SSID)
 - **Battery optimization** exemption request and **Manage app if unused** shortcut (system settings)
 - **Quick Settings tile** to start/stop monitoring (label = tunnel/config name when loaded)
@@ -116,7 +122,7 @@ After a successful `assembleRelease`:
 app/build/outputs/apk/release/wifi-vpn-release.apk
 ```
 
-Current release: **1.2.2** (`versionCode` 6). APKs are gitignored; build them locally (or from CI) with the project keystore.
+Current release: **1.3** (`versionCode` 7). APKs are gitignored; build them locally (or from CI) with the project keystore.
 
 ## Setup
 

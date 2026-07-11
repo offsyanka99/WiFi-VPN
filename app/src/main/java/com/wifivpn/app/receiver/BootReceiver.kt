@@ -5,11 +5,13 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.wifivpn.app.WifiVpnApp
+import com.wifivpn.app.permission.PermissionCheckWorker
 import com.wifivpn.app.service.WifiMonitorService
 import kotlinx.coroutines.runBlocking
 
 /**
  * Starts Wi‑Fi monitoring after reboot when the user enabled Auto-start.
+ * Also re-schedules the weekly permission check.
  */
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
@@ -20,6 +22,8 @@ class BootReceiver : BroadcastReceiver() {
         ) {
             return
         }
+
+        PermissionCheckWorker.schedule(context)
 
         val app = context.applicationContext as? WifiVpnApp ?: return
         val autoStart = runBlocking { app.configRepository.isAutoStartEnabled() }

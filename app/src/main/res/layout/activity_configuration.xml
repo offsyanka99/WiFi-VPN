@@ -214,7 +214,129 @@
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- 4. Grant VPN permission -->
+            <!-- 4. VPN connection retries -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="@string/label_vpn_retry"
+                android:textAppearance="?attr/textAppearanceTitleSmall" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="@string/vpn_retry_help"
+                android:textAppearance="?attr/textAppearanceBodySmall"
+                android:textColor="@color/status_off" />
+
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                app:cardElevation="1dp"
+                app:cardUseCompatPadding="true">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/label_vpn_retry_attempts"
+                        android:textAppearance="?attr/textAppearanceBodyLarge" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnRetryAttemptsMinus"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="48dp"
+                            android:layout_height="wrap_content"
+                            android:insetTop="0dp"
+                            android:insetBottom="0dp"
+                            android:minWidth="48dp"
+                            android:text="@string/btn_minus"
+                            android:textSize="18sp" />
+
+                        <TextView
+                            android:id="@+id/retryAttemptsValue"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:gravity="center"
+                            android:textAppearance="?attr/textAppearanceTitleMedium"
+                            tools:text="3" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnRetryAttemptsPlus"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="48dp"
+                            android:layout_height="wrap_content"
+                            android:insetTop="0dp"
+                            android:insetBottom="0dp"
+                            android:minWidth="48dp"
+                            android:text="@string/btn_plus"
+                            android:textSize="18sp" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="16dp"
+                        android:text="@string/label_vpn_retry_delay"
+                        android:textAppearance="?attr/textAppearanceBodyLarge" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnRetryDelayMinus"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="48dp"
+                            android:layout_height="wrap_content"
+                            android:insetTop="0dp"
+                            android:insetBottom="0dp"
+                            android:minWidth="48dp"
+                            android:text="@string/btn_minus"
+                            android:textSize="18sp" />
+
+                        <TextView
+                            android:id="@+id/retryDelayValue"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:gravity="center"
+                            android:textAppearance="?attr/textAppearanceTitleMedium"
+                            tools:text="5 s" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnRetryDelayPlus"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="48dp"
+                            android:layout_height="wrap_content"
+                            android:insetTop="0dp"
+                            android:insetBottom="0dp"
+                            android:minWidth="48dp"
+                            android:text="@string/btn_plus"
+                            android:textSize="18sp" />
+                    </LinearLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- 5. Grant VPN permission -->
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnVpnPermission"
                 style="@style/Widget.Material3.Button.OutlinedButton"

@@ -19,8 +19,8 @@ android {
         applicationId = "com.wifivpn.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 6
-        versionName = "1.2.2"
+        versionCode = 7
+        versionName = "1.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -84,6 +84,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-service:2.8.7")
     implementation("androidx.datastore:datastore-preferences:1.1.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
 
     // WireGuard embeddable tunnel (userspace Go backend)
     implementation("com.wireguard.android:tunnel:1.0.20230706")
