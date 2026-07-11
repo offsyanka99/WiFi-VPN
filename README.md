@@ -1,6 +1,6 @@
 # WiFi VPN
 
-**Version 1.0**
+**Version 1.1**
 
 Android app that monitors **trusted Wi‑Fi networks** in the background and automatically controls a **WireGuard** tunnel:
 
@@ -11,6 +11,19 @@ Android app that monitors **trusted Wi‑Fi networks** in the background and aut
 
 Built with **Kotlin + Jetpack** (Foreground Service, ConnectivityManager, DataStore, Material 3) and the official WireGuard tunnel library (`com.wireguard.android:tunnel`).
 
+## Changelog
+
+### 1.1
+
+- **Configuration** screen — WireGuard config, trusted Wi‑Fi, excluded apps, and auto-start live on a dedicated page (footer: Configuration · About)
+- Clearer **VPN permission** feedback: full dialogs instead of truncated toasts; logcat diagnostics for grant results
+- New **app icon** and **Quick Settings tile** icon
+- Configuration toolbar spacing so the title clears the system status bar
+
+### 1.0
+
+- Initial release: trusted Wi‑Fi monitoring, WireGuard userspace tunnel, exclusions, auto-start, Quick Settings tile, screen-off SSID handling
+
 ## Branches
 
 | Branch | Purpose |
@@ -18,10 +31,11 @@ Built with **Kotlin + Jetpack** (Foreground Service, ConnectivityManager, DataSt
 | **`release/1.0`** | Stable **v1.0** release line (bugfixes only if needed) |
 | **`main`** | Ongoing development for future versions |
 
-Tags: `v1.0` marks the 1.0 release point.
+Tags: `v1.0` marks the 1.0 release point; `v1.1` marks this release.
 
 ## Features
 
+- **Configuration** page for WireGuard config, trusted networks, app exclusions, and auto-start
 - **Trusted Wi‑Fi list** — add SSIDs manually or from the current network; VPN turns off only on those networks
 - **Foreground service** with a persistent status notification while monitoring
 - **WireGuard** tunnel via the userspace Go backend (`GoBackend$VpnService`)
@@ -70,7 +84,7 @@ Release builds use signing from `keystore.properties` (see `app/build.gradle.kts
 adb install -r app/build/outputs/apk/release/wifi-vpn-release.apk
 ```
 
-### Install v1.0 release APK
+### Install v1.1 release APK
 
 After a successful `assembleRelease`:
 
@@ -85,7 +99,7 @@ APKs are gitignored; build them locally (or from CI) with the project keystore.
 1. Open this folder in Android Studio (optional) **or** use Gradle CLI above.
 2. Sync Gradle and build the `app` module.
 3. Install on a device with USB debugging (VPN APIs required; physical device recommended).
-4. In the app, tap **Load config file…** and pick a WireGuard `.conf`, for example:
+4. Open **Configuration** and tap **Load config file…** to pick a WireGuard `.conf`, for example:
 
 ```ini
 [Interface]
@@ -100,16 +114,16 @@ Endpoint = vpn.example.com:51820
 PersistentKeepalive = 25
 ```
 
-5. Add at least one **trusted Wi‑Fi** (type the SSID or use **Add current network**). Grant location / nearby Wi‑Fi permission if prompted.
-6. Optionally choose **Exclude applications from VPN**.
-7. Tap **Grant VPN permission** once (system dialog).
-8. Tap **Start monitoring**. Optionally enable **Auto-start after reboot**, or add the **WiFi VPN** Quick Settings tile.
+5. Still in **Configuration**, add at least one **trusted Wi‑Fi** (type the SSID or use **Add current network**). Grant location / nearby Wi‑Fi permission if prompted.
+6. Optionally choose **Exclude applications from VPN** and enable **Auto-start after reboot**.
+7. On the main screen, tap **Grant VPN permission** once (system dialog).
+8. Tap **Start monitoring**. Optionally add the **WiFi VPN** Quick Settings tile.
 
 ## How it works
 
 ```
 MainActivity / Quick Settings tile / BootReceiver
-    │  config, trusted SSIDs, start-stop
+    │  start-stop; settings via ConfigurationActivity
     ▼
 WifiMonitorService  (foreground + persistent notification)
     │  ConnectivityManager + trusted SSID list (DataStore)

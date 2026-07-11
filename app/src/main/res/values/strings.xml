@@ -58,7 +58,14 @@
     <string name="msg_config_invalid">Invalid WireGuard config: %1$s</string>
     <string name="msg_config_read_failed">Could not read file: %1$s</string>
     <string name="msg_exclusions_saved">Excluded apps saved</string>
-    <string name="msg_vpn_permission_needed">VPN permission is required before monitoring can start</string>
+    <string name="msg_vpn_permission_needed">Approve the system VPN dialog before monitoring can start</string>
+    <string name="msg_vpn_permission_granted">VPN permission granted</string>
+    <string name="msg_vpn_permission_already_granted">VPN permission already granted</string>
+    <string name="msg_vpn_permission_title">VPN permission</string>
+    <string name="msg_vpn_permission_denied">VPN permission was not granted.\n\nTap OK on the system “Connection request” dialog when it appears.\n\nIf the dialog never appears, disconnect other VPNs and turn off Always-on VPN in:\nSettings → Network &amp; internet → VPN</string>
+    <string name="msg_vpn_permission_still_missing">The system reported OK, but VPN permission is still missing.\n\nDisconnect other VPNs, turn off Always-on VPN in Settings → Network &amp; internet → VPN, then try again.</string>
+    <string name="msg_vpn_permission_launch_failed">Could not open the system VPN permission dialog:\n\n%1$s</string>
+    <string name="btn_ok">OK</string>
     <string name="msg_notification_permission_needed">Notification permission helps the monitor stay alive in the background</string>
     <string name="msg_trusted_wifi_required">Add at least one trusted Wi‑Fi network first</string>
     <string name="help_text">Monitors your trusted Wi‑Fi networks in the background. VPN turns off on those networks and stays on everywhere else.</string>
@@ -70,6 +77,9 @@
     <string name="tile_subtitle_on">Monitoring on</string>
     <string name="tile_subtitle_off">Monitoring off</string>
     <string name="tile_need_setup">Open app to set up</string>
+    <string name="configuration_link">Configuration</string>
+    <string name="configuration_title">Configuration</string>
+    <string name="footer_link_separator">·</string>
     <string name="about_link">About</string>
     <string name="about_version">Version %1$s</string>
     <string name="about_author">HummerSoft</string>

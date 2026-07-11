@@ -14,5 +14,5 @@
     <color name="status_ok">#81C784</color>
     <color name="status_warn">#FFB74D</color>
     <color name="status_off">#B0B0B0</color>
-    <color name="ic_launcher_background">#1565C0</color>
+    <color name="ic_launcher_background">#2E3E55</color>
 </resources>
