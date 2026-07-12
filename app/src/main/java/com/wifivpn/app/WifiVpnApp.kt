@@ -3,8 +3,10 @@ package com.wifivpn.app
 import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.content.pm.PackageManager
 import android.os.Build
 import com.wifivpn.app.data.ConfigRepository
+import com.wifivpn.app.log.DiagnosticLogger
 import com.wifivpn.app.permission.PermissionCheckWorker
 import com.wifivpn.app.vpn.WireGuardManager
 
@@ -16,13 +18,33 @@ class WifiVpnApp : Application() {
     lateinit var wireGuardManager: WireGuardManager
         private set
 
+    lateinit var diagnosticLogger: DiagnosticLogger
+        private set
+
     override fun onCreate() {
         super.onCreate()
         instance = this
         configRepository = ConfigRepository(this)
+        diagnosticLogger = DiagnosticLogger(this)
+        diagnosticLogger.logSessionStart(appVersionName())
+        // After logger so tunnel events can be recorded immediately
         wireGuardManager = WireGuardManager(this)
         createNotificationChannels()
         PermissionCheckWorker.schedule(this)
+    }
+
+    private fun appVersionName(): String {
+        return try {
+            val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                packageManager.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(0))
+            } else {
+                @Suppress("DEPRECATION")
+                packageManager.getPackageInfo(packageName, 0)
+            }
+            info.versionName?.takeIf { it.isNotBlank() } ?: "1.0"
+        } catch (_: Exception) {
+            "1.0"
+        }
     }
 
     private fun createNotificationChannels() {

@@ -1,6 +1,6 @@
 # WiFi VPN
 
-**Version 1.3.1**
+**Version 1.4.0**
 
 Android app that monitors **trusted Wi‑Fi networks** in the background and automatically controls a **WireGuard** tunnel:
 
@@ -18,14 +18,35 @@ Built with **Kotlin + Jetpack** (Foreground Service, ConnectivityManager, DataSt
 | ![Main screen — monitoring on](docs/screenshots/main-monitoring.png) | ![Configuration](docs/screenshots/configuration.png) | ![About dialog](docs/screenshots/about.png) |
 
 - **Main** — status card (monitoring, Wi‑Fi, VPN) and start/stop control  
-- **Configuration** — WireGuard config, trusted networks, exclusions, retries, and permissions  
-- **About** — app name, version, author, and contact email  
+- **Configuration** — WireGuard config, trusted networks, exclusions, retries, permissions, and diagnostic log  
+- **About** — app name, version, contact email, and year  
 
 ## Contact
 
 - **Email:** [wifi-vpn@mailbox.org](mailto:wifi-vpn@mailbox.org)
 
+## Download
+
+Prebuilt release APK (signed):
+
+| Version | File |
+|---------|------|
+| **1.4.0** | [`releases/wifi-vpn-1.4.0-release.apk`](releases/wifi-vpn-1.4.0-release.apk) |
+
+Install with:
+
+```bash
+adb install -r releases/wifi-vpn-1.4.0-release.apk
+```
+
 ## Changelog
+
+### 1.4.0
+
+- **Diagnostic log** for multi-device troubleshooting: Wi‑Fi and cellular changes, SSID, VPN on/off, tunnel connect success/failure, and retry attempts
+- Log file can be **sent via email** from Configuration (attachment + device info); optional clear log
+- Release/debug APK filenames include the version: `wifi-vpn-<version>-{debug,release}.apk`
+- About dialog: removed author line; year shown after the email
 
 ### 1.3.1
 
@@ -78,17 +99,18 @@ Built with **Kotlin + Jetpack** (Foreground Service, ConnectivityManager, DataSt
 | **`release/1.0`** | Stable **v1.0** release line (bugfixes only if needed) |
 | **`main`** | Ongoing development for future versions |
 
-Tags: `v1.0` / `v1.1` / `v1.1.1` / `v1.2` / `v1.2.1` / `v1.2.2` / `v1.3` / `v1.3.1` mark release points.
+Tags: `v1.0` / `v1.1` / `v1.1.1` / `v1.2` / `v1.2.1` / `v1.2.2` / `v1.3` / `v1.3.1` / `v1.4.0` mark release points.
 
 ## Features
 
-- **Configuration** page for WireGuard config, trusted networks, app exclusions, VPN retries, VPN permission, battery optimization, unused-app setting, and auto-start
+- **Configuration** page for WireGuard config, trusted networks, app exclusions, VPN retries, VPN permission, battery optimization, unused-app setting, auto-start, and diagnostic log
 - **Trusted Wi‑Fi list** — add SSIDs manually or from the current network; VPN turns off only on those networks
 - **Foreground service** with a persistent status notification while monitoring
 - **WireGuard** tunnel via the userspace Go backend (`GoBackend$VpnService`)
 - Load config from a `.conf` file (system file picker); stored in DataStore
 - **Exclude apps** from the VPN (e.g. Android Auto); multi-select list with search
 - Configurable **VPN connect retries** (attempts + delay) with progress in the notification
+- **Diagnostic log** (network / VPN / tunnel events) with email share for troubleshooting
 - **Weekly permission check** with alert notification if critical permissions are disabled
 - **Auto-start after reboot** (optional switch; requires config + at least one trusted SSID)
 - **Battery optimization** exemption request and **Manage app if unused** shortcut (system settings)
@@ -121,27 +143,30 @@ Environment is appended to `~/.bashrc` (`JAVA_HOME`, `ANDROID_HOME`, `PATH`). Op
 source ~/.bashrc
 cd /path/to/WiFi-VPN
 ./gradlew assembleDebug
-# APK: app/build/outputs/apk/debug/wifi-vpn-debug.apk
-adb install -r app/build/outputs/apk/debug/wifi-vpn-debug.apk
+# APK: app/build/outputs/apk/debug/wifi-vpn-<version>-debug.apk
+adb install -r app/build/outputs/apk/debug/wifi-vpn-1.4.0-debug.apk
 ```
 
 Release builds use signing from `keystore.properties` (see `app/build.gradle.kts`). Keystore files and that properties file are gitignored.
 
 ```bash
 ./gradlew assembleRelease
-# APK: app/build/outputs/apk/release/wifi-vpn-release.apk
-adb install -r app/build/outputs/apk/release/wifi-vpn-release.apk
+# APK: app/build/outputs/apk/release/wifi-vpn-<version>-release.apk
+# Copy into repo for distribution:
+mkdir -p releases
+cp app/build/outputs/apk/release/wifi-vpn-1.4.0-release.apk releases/
+adb install -r releases/wifi-vpn-1.4.0-release.apk
 ```
 
 ### Install release APK
 
-After a successful `assembleRelease`:
+Published copy in this repository:
 
 ```text
-app/build/outputs/apk/release/wifi-vpn-release.apk
+releases/wifi-vpn-1.4.0-release.apk
 ```
 
-Current release: **1.3.1** (`versionCode` 8). APKs are gitignored; build them locally (or from CI) with the project keystore.
+Current release: **1.4.0** (`versionCode` 9). Build outputs under `app/build/` remain gitignored; signed release APKs under `releases/` are tracked.
 
 ## Setup
 
@@ -220,6 +245,7 @@ SSID detection notes:
 - SSID reading often needs **location services enabled** on the device, not only the runtime permission.
 - Test by leaving a trusted home Wi‑Fi (or turning Wi‑Fi off on mobile data) and watching the notification switch to “Other Wi‑Fi — VPN active” or “No Wi‑Fi — VPN active”.
 - Changes to excluded apps apply the **next** time the tunnel starts.
+- Diagnostic log does not include WireGuard private keys or full tunnel config.
 
 ## License
 

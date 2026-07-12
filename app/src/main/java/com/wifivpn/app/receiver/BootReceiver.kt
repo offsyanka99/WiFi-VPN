@@ -29,20 +29,27 @@ class BootReceiver : BroadcastReceiver() {
         val autoStart = runBlocking { app.configRepository.isAutoStartEnabled() }
         if (!autoStart) {
             Log.i(TAG, "Auto-start off — skip ($action)")
+            app.diagnosticLogger.i(CAT, "boot action=$action auto_start=off — skip")
             return
         }
 
         val canStart = runBlocking { app.configRepository.canStartMonitoring() }
         if (!canStart) {
             Log.w(TAG, "Not configured (config/trusted Wi‑Fi) — skip auto-start")
+            app.diagnosticLogger.w(
+                CAT,
+                "boot action=$action auto_start=on but not configured — skip"
+            )
             return
         }
 
         Log.i(TAG, "Auto-starting WiFi monitor after $action")
+        app.diagnosticLogger.i(CAT, "boot action=$action auto-starting monitor")
         WifiMonitorService.start(context)
     }
 
     companion object {
         private const val TAG = "BootReceiver"
+        private const val CAT = "BOOT"
     }
 }

@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.Intent
 import android.net.VpnService
 import android.util.Log
+import com.wifivpn.app.WifiVpnApp
+import com.wifivpn.app.log.DiagnosticLogger
 import com.wireguard.android.backend.BackendException
 import com.wireguard.android.backend.GoBackend
 import com.wireguard.android.backend.Tunnel
@@ -28,8 +30,12 @@ class WireGuardManager(private val context: Context) {
         override fun onStateChange(newState: Tunnel.State) {
             Log.i(TAG, "Tunnel state -> $newState")
             _state = newState
+            diagnosticLogger()?.i(CAT_TUNNEL, "state_change -> $newState")
         }
     }
+
+    private fun diagnosticLogger(): DiagnosticLogger? =
+        (context.applicationContext as? WifiVpnApp)?.diagnosticLogger
 
     @Volatile
     private var _state: Tunnel.State = Tunnel.State.DOWN
@@ -88,6 +94,7 @@ class WireGuardManager(private val context: Context) {
             runCatching {
                 if (_state == Tunnel.State.UP) {
                     Log.i(TAG, "Tunnel already UP — skip")
+                    diagnosticLogger()?.i(CAT_TUNNEL, "bring UP skipped — already UP")
                     return@runCatching
                 }
                 val config = buildConfigWithExclusions(rawConfig, excludedPackages).getOrThrow()
@@ -98,15 +105,21 @@ class WireGuardManager(private val context: Context) {
                     TAG,
                     "Bringing tunnel UP; excluded=${config.`interface`.excludedApplications}"
                 )
+                diagnosticLogger()?.i(
+                    CAT_TUNNEL,
+                    "bringing UP excluded=${config.`interface`.excludedApplications.size}"
+                )
                 val newState = backend.setState(tunnel, Tunnel.State.UP, config)
                 _state = newState
                 if (newState != Tunnel.State.UP) {
                     error("Tunnel did not reach UP (state=$newState)")
                 }
                 Log.i(TAG, "WireGuard tunnel UP")
+                diagnosticLogger()?.i(CAT_TUNNEL, "UP success")
                 Unit
             }.onFailure { e ->
                 Log.e(TAG, "Failed to bring tunnel up: ${formatError(e)}", e)
+                diagnosticLogger()?.e(CAT_TUNNEL, "UP failure: ${formatError(e)}")
                 // Ensure we don't report UP after a failed attempt
                 if (_state == Tunnel.State.UP) {
                     runCatching { backend.setState(tunnel, Tunnel.State.DOWN, null) }
@@ -119,13 +132,18 @@ class WireGuardManager(private val context: Context) {
     suspend fun setTunnelDown(): Result<Unit> = mutex.withLock {
         withContext(Dispatchers.IO) {
             runCatching {
-                if (_state == Tunnel.State.DOWN) return@runCatching
+                if (_state == Tunnel.State.DOWN) {
+                    diagnosticLogger()?.i(CAT_TUNNEL, "bring DOWN skipped — already DOWN")
+                    return@runCatching
+                }
                 backend.setState(tunnel, Tunnel.State.DOWN, null)
                 _state = Tunnel.State.DOWN
                 Log.i(TAG, "WireGuard tunnel DOWN")
+                diagnosticLogger()?.i(CAT_TUNNEL, "DOWN success")
                 Unit
             }.onFailure { e ->
                 Log.e(TAG, "Failed to bring tunnel down: ${formatError(e)}", e)
+                diagnosticLogger()?.e(CAT_TUNNEL, "DOWN failure: ${formatError(e)}")
             }
         }
     }
@@ -141,6 +159,7 @@ class WireGuardManager(private val context: Context) {
 
     companion object {
         private const val TAG = "WireGuardManager"
+        private const val CAT_TUNNEL = "TUNNEL"
         const val TUNNEL_NAME = "wifi-vpn"
 
         fun formatError(error: Throwable?): String {

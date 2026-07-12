@@ -11,6 +11,8 @@
 *.apk
 *.ap_
 *.aab
+# Published release binaries (tracked intentionally)
+!releases/*.apk
 *.dex
 *.class
 bin/

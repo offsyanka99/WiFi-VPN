@@ -19,15 +19,15 @@ android {
         applicationId = "com.wifivpn.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 8
-        versionName = "1.3.1"
+        versionCode = 9
+        versionName = "1.4.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
-    // APK names: wifi-vpn-debug.apk, wifi-vpn-release.apk
+    // APK names: wifi-vpn-<versionName>-debug.apk, wifi-vpn-<versionName>-release.apk
     base {
-        archivesName.set("wifi-vpn")
+        archivesName.set("wifi-vpn-${defaultConfig.versionName}")
     }
 
     signingConfigs {

@@ -111,10 +111,19 @@
     <string name="footer_link_separator">·</string>
     <string name="about_link">About</string>
     <string name="about_version">Version %1$s</string>
-    <string name="about_author">HummerSoft</string>
     <string name="about_year">2026</string>
     <string name="about_email">wifi-vpn@mailbox.org</string>
     <string name="about_close">Close</string>
+    <string name="label_diagnostic_log">Diagnostic log</string>
+    <string name="diagnostic_log_help">Records Wi‑Fi and cellular changes, network names, VPN on/off, tunnel connect success, and retry attempts. Send the log by email when troubleshooting from another device.</string>
+    <string name="btn_send_diagnostic_log">Send log via email…</string>
+    <string name="btn_clear_diagnostic_log">Clear log</string>
+    <string name="msg_diagnostic_log_empty">No log entries yet. Start monitoring and change networks to generate events.</string>
+    <string name="msg_diagnostic_log_share_failed">Could not open email / share for the log file</string>
+    <string name="msg_diagnostic_log_cleared">Diagnostic log cleared</string>
+    <string name="diagnostic_log_email_subject">WiFi VPN diagnostic log</string>
+    <string name="diagnostic_log_email_body">Attached is the WiFi VPN diagnostic log for troubleshooting.\n\nApp version: %1$s\nDevice: %2$s\nAndroid: %3$s\n</string>
+    <string name="diagnostic_log_share_title">Send diagnostic log</string>
 </resources>
 
 

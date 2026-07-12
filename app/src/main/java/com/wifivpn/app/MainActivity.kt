@@ -209,9 +209,8 @@ class MainActivity : AppCompatActivity() {
         about.aboutIcon.setImageResource(R.mipmap.ic_launcher)
         about.aboutName.text = getString(R.string.app_name)
         about.aboutVersion.text = getString(R.string.about_version, appVersionName())
-        about.aboutAuthor.text = getString(R.string.about_author)
-        about.aboutYear.text = getString(R.string.about_year)
         about.aboutEmail.text = getString(R.string.about_email)
+        about.aboutYear.text = getString(R.string.about_year)
 
         MaterialAlertDialogBuilder(this)
             .setView(about.root)

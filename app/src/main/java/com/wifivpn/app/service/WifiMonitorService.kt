@@ -47,6 +47,7 @@ class WifiMonitorService : LifecycleService() {
         wifiMonitor = WifiConnectivityMonitor(this)
         instance = this
         Log.i(TAG, "Service created")
+        app.diagnosticLogger.i(CAT_MONITOR, "service created")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -72,6 +73,7 @@ class WifiMonitorService : LifecycleService() {
 
         _uiState.value = _uiState.value.copy(monitoring = true, message = "Monitoring…")
         MonitorTileService.requestUpdate(this)
+        app.diagnosticLogger.i(CAT_MONITOR, "monitoring started")
 
         monitorJob = lifecycleScope.launch {
             app.configRepository.setMonitoringEnabled(true)
@@ -94,6 +96,7 @@ class WifiMonitorService : LifecycleService() {
             TAG,
             "Decision: connected=${snap.wifiConnected} ssid=${snap.ssid} trusted=${snap.onTrustedWifi}"
         )
+        logNetworkAndDecision(snap)
         _uiState.value = _uiState.value.copy(
             wifiConnected = snap.wifiConnected,
             onTrustedWifi = snap.onTrustedWifi,
@@ -101,6 +104,7 @@ class WifiMonitorService : LifecycleService() {
         )
 
         if (snap.onTrustedWifi) {
+            val wasUp = app.wireGuardManager.isUp
             val result = app.wireGuardManager.setTunnelDown()
             val msg = if (result.isSuccess) {
                 getString(R.string.notification_trusted_wifi)
@@ -110,12 +114,48 @@ class WifiMonitorService : LifecycleService() {
                     WireGuardManager.formatError(result.exceptionOrNull())
                 )
             }
+            if (wasUp || result.isFailure) {
+                if (result.isSuccess) {
+                    app.diagnosticLogger.i(
+                        CAT_VPN,
+                        "VPN off (trusted Wi‑Fi) result=success wasUp=$wasUp"
+                    )
+                } else {
+                    app.diagnosticLogger.e(
+                        CAT_VPN,
+                        "VPN off (trusted Wi‑Fi) result=failure " +
+                            "error=${WireGuardManager.formatError(result.exceptionOrNull())}"
+                    )
+                }
+            } else {
+                app.diagnosticLogger.i(
+                    CAT_VPN,
+                    "VPN already off on trusted Wi‑Fi ssid=${snap.ssid ?: "unknown"}"
+                )
+            }
             _uiState.value = _uiState.value.copy(vpnActive = false, message = msg)
             updateNotification(msg)
             MonitorTileService.requestUpdate(this)
         } else {
             bringVpnUpWithRetry(snap)
         }
+    }
+
+    private fun logNetworkAndDecision(snap: WifiConnectivityMonitor.WifiSnapshot) {
+        val wifiLabel = when {
+            !snap.wifiConnected -> "disconnected"
+            snap.onTrustedWifi -> "trusted"
+            else -> "other"
+        }
+        val ssidPart = snap.ssid?.let { "ssid=\"$it\"" } ?: "ssid=unknown"
+        val decision = if (snap.onTrustedWifi) "VPN_OFF" else "VPN_ON"
+        app.diagnosticLogger.i(
+            CAT_NETWORK,
+            "wifi=$wifiLabel $ssidPart cellular=${if (snap.cellularConnected) "up" else "down"} " +
+                "transports=${snap.transports.ifEmpty { "none" }} " +
+                "vpn_before=${if (app.wireGuardManager.isUp) "on" else "off"} " +
+                "decision=$decision"
+        )
     }
 
     /**
@@ -128,6 +168,7 @@ class WifiMonitorService : LifecycleService() {
             val msg = getString(R.string.msg_config_empty)
             _uiState.value = _uiState.value.copy(vpnActive = false, message = msg)
             updateNotification(msg)
+            app.diagnosticLogger.w(CAT_VPN, "VPN on skipped — WireGuard config empty")
             return
         }
 
@@ -137,6 +178,12 @@ class WifiMonitorService : LifecycleService() {
             _uiState.value = _uiState.value.copy(vpnActive = true, message = msg)
             updateNotification(msg)
             MonitorTileService.requestUpdate(this)
+            app.diagnosticLogger.i(
+                CAT_VPN,
+                "VPN already on — no reconnect " +
+                    "(wifi=${if (snap.wifiConnected) "up" else "down"} " +
+                    "ssid=${snap.ssid ?: "none"} cellular=${if (snap.cellularConnected) "up" else "down"})"
+            )
             return
         }
 
@@ -144,6 +191,13 @@ class WifiMonitorService : LifecycleService() {
         val delayMs = app.configRepository.getVpnRetryDelaySeconds() * 1000L
         val excluded = app.configRepository.getExcludedApps()
         var lastError: Throwable? = null
+
+        app.diagnosticLogger.i(
+            CAT_VPN,
+            "VPN connect starting maxAttempts=$maxAttempts delaySec=${delayMs / 1000} " +
+                "excludedApps=${excluded.size} " +
+                "reason=${if (!snap.wifiConnected) "no_wifi" else "untrusted_wifi"}"
+        )
 
         for (attempt in 1..maxAttempts) {
             val progressMsg = if (attempt == 1) {
@@ -154,6 +208,10 @@ class WifiMonitorService : LifecycleService() {
             _uiState.value = _uiState.value.copy(vpnActive = false, message = progressMsg)
             updateNotification(progressMsg)
             Log.i(TAG, "VPN connect attempt $attempt/$maxAttempts (delay=${delayMs}ms)")
+            app.diagnosticLogger.i(
+                CAT_VPN,
+                "tunnel connect attempt=$attempt/$maxAttempts"
+            )
 
             val result = app.wireGuardManager.setTunnelUp(config, excluded)
             if (result.isSuccess) {
@@ -162,15 +220,27 @@ class WifiMonitorService : LifecycleService() {
                 updateNotification(msg)
                 MonitorTileService.requestUpdate(this)
                 Log.i(TAG, "VPN up on attempt $attempt")
+                app.diagnosticLogger.i(
+                    CAT_VPN,
+                    "tunnel connect SUCCESS attempt=$attempt/$maxAttempts vpn=on"
+                )
                 return
             }
 
             lastError = result.exceptionOrNull()
             val errText = WireGuardManager.formatError(lastError)
             Log.w(TAG, "VPN attempt $attempt failed: $errText")
+            app.diagnosticLogger.w(
+                CAT_VPN,
+                "tunnel connect FAILED attempt=$attempt/$maxAttempts error=$errText"
+            )
 
             if (app.wireGuardManager.isNonRetryable(lastError)) {
                 Log.w(TAG, "Non-retryable error — stopping retries")
+                app.diagnosticLogger.w(
+                    CAT_VPN,
+                    "non-retryable error — stopping retries error=$errText"
+                )
                 break
             }
 
@@ -183,10 +253,20 @@ class WifiMonitorService : LifecycleService() {
                 )
                 _uiState.value = _uiState.value.copy(vpnActive = false, message = waitMsg)
                 updateNotification(waitMsg)
+                app.diagnosticLogger.i(
+                    CAT_VPN,
+                    "retry scheduled attempt=${attempt + 1}/$maxAttempts " +
+                        "waitSec=${delayMs / 1000}"
+                )
                 try {
                     delay(delayMs)
                 } catch (e: CancellationException) {
                     Log.i(TAG, "VPN retry cancelled (network decision changed)")
+                    app.diagnosticLogger.i(
+                        CAT_VPN,
+                        "tunnel connect cancelled (network decision changed) " +
+                            "after attempt=$attempt/$maxAttempts"
+                    )
                     throw e
                 }
             }
@@ -201,6 +281,11 @@ class WifiMonitorService : LifecycleService() {
         updateNotification(finalMsg)
         MonitorTileService.requestUpdate(this)
         Log.e(TAG, finalMsg)
+        app.diagnosticLogger.e(
+            CAT_VPN,
+            "tunnel connect GAVE UP after attempts vpn=off " +
+                "error=${WireGuardManager.formatError(lastError)}"
+        )
     }
 
     private fun successMessage(snap: WifiConnectivityMonitor.WifiSnapshot): String {
@@ -213,7 +298,8 @@ class WifiMonitorService : LifecycleService() {
     private suspend fun stopMonitoringInternal() {
         monitorJob?.cancel()
         monitorJob = null
-        app.wireGuardManager.setTunnelDown()
+        val wasUp = app.wireGuardManager.isUp
+        val downResult = app.wireGuardManager.setTunnelDown()
         app.configRepository.setMonitoringEnabled(false)
         val snap = wifiMonitor.snapshot(app.configRepository.getTrustedWifiSsids())
         _uiState.value = MonitorUiState(
@@ -226,6 +312,13 @@ class WifiMonitorService : LifecycleService() {
         )
         MonitorTileService.requestUpdate(this)
         Log.i(TAG, "Monitoring stopped")
+        app.diagnosticLogger.i(
+            CAT_MONITOR,
+            "monitoring stopped vpnWasUp=$wasUp " +
+                "vpnDown=${if (downResult.isSuccess) "ok" else "fail"} " +
+                "wifi=${if (snap.wifiConnected) "up" else "down"} " +
+                "ssid=${snap.ssid ?: "none"}"
+        )
     }
 
     private fun startAsForeground(content: String) {
@@ -309,6 +402,7 @@ class WifiMonitorService : LifecycleService() {
     override fun onDestroy() {
         monitorJob?.cancel()
         if (instance === this) instance = null
+        app.diagnosticLogger.i(CAT_MONITOR, "service destroyed")
         super.onDestroy()
         Log.i(TAG, "Service destroyed")
     }
@@ -324,6 +418,9 @@ class WifiMonitorService : LifecycleService() {
 
     companion object {
         private const val TAG = "WifiMonitorService"
+        private const val CAT_MONITOR = "MONITOR"
+        private const val CAT_NETWORK = "NETWORK"
+        private const val CAT_VPN = "VPN"
         const val ACTION_STOP = "com.wifivpn.app.action.STOP_MONITORING"
 
         @Volatile

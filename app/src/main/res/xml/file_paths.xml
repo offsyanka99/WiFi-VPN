@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Diagnostic log under filesDir/logs/ for email share via FileProvider -->
+    <files-path
+        name="diagnostic_logs"
+        path="logs/" />
+</paths>

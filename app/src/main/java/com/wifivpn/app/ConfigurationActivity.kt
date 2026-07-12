@@ -148,6 +148,8 @@ class ConfigurationActivity : AppCompatActivity() {
         binding.btnRetryDelayPlus.setOnClickListener {
             adjustRetryDelay(1)
         }
+        binding.btnSendDiagnosticLog.setOnClickListener { sendDiagnosticLog() }
+        binding.btnClearDiagnosticLog.setOnClickListener { clearDiagnosticLog() }
         binding.switchBatteryOptimization.setOnCheckedChangeListener { button, isChecked ->
             if (!button.isPressed || syncingBatterySwitch) return@setOnCheckedChangeListener
             onBatteryOptimizationToggled(isChecked)
@@ -602,6 +604,54 @@ class ConfigurationActivity : AppCompatActivity() {
                     if (isChecked) R.string.msg_auto_start_on else R.string.msg_auto_start_off
                 )
             )
+        }
+    }
+
+    private fun sendDiagnosticLog() {
+        val logger = app.diagnosticLogger
+        if (!logger.hasContent()) {
+            toast(getString(R.string.msg_diagnostic_log_empty))
+            return
+        }
+        logger.i("UI", "user requested send diagnostic log via email")
+        val version = appVersionName()
+        val device = "${Build.MANUFACTURER} ${Build.MODEL}"
+        val androidLabel = "${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})"
+        val body = getString(R.string.diagnostic_log_email_body, version, device, androidLabel)
+        val intent = logger.createEmailShareIntent(
+            subject = getString(R.string.diagnostic_log_email_subject),
+            body = body,
+            toAddress = getString(R.string.about_email),
+            chooserTitle = getString(R.string.diagnostic_log_share_title)
+        )
+        if (intent == null) {
+            toast(getString(R.string.msg_diagnostic_log_share_failed))
+            return
+        }
+        try {
+            startActivity(intent)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to launch log share", e)
+            toast(getString(R.string.msg_diagnostic_log_share_failed))
+        }
+    }
+
+    private fun clearDiagnosticLog() {
+        app.diagnosticLogger.clear()
+        toast(getString(R.string.msg_diagnostic_log_cleared))
+    }
+
+    private fun appVersionName(): String {
+        return try {
+            val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                packageManager.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(0))
+            } else {
+                @Suppress("DEPRECATION")
+                packageManager.getPackageInfo(packageName, 0)
+            }
+            info.versionName?.takeIf { it.isNotBlank() } ?: "1.0"
+        } catch (_: Exception) {
+            "1.0"
         }
     }
 

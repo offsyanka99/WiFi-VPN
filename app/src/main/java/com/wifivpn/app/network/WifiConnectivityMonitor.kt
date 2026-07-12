@@ -54,12 +54,19 @@ class WifiConnectivityMonitor(private val context: Context) {
     private var cachedAssociationKey: String? = null
 
     data class WifiSnapshot(
-        /** Any Wi‑Fi transport with internet is up. */
+        /** Any Wi‑Fi transport is up (associated / internet path). */
         val wifiConnected: Boolean,
         /** Current SSID if readable; null if offline or permission/location blocks it. */
         val ssid: String?,
         /** True only when connected to a network whose SSID is in [trustedSsids]. */
-        val onTrustedWifi: Boolean
+        val onTrustedWifi: Boolean,
+        /** Cellular transport currently available (may coexist with Wi‑Fi). */
+        val cellularConnected: Boolean = false,
+        /**
+         * Active network transports for diagnostics, e.g. `WIFI`, `CELLULAR`, `VPN`.
+         * Sorted, comma-separated; empty when nothing is up.
+         */
+        val transports: String = ""
     )
 
     fun isWifiConnected(): Boolean {
@@ -236,13 +243,18 @@ class WifiConnectivityMonitor(private val context: Context) {
     }
 
     fun snapshot(trustedSsids: Set<String>): WifiSnapshot {
+        val transports = activeTransports()
+        val cellular = transports.contains(TRANSPORT_CELLULAR)
+        val transportLabel = transports.sorted().joinToString(",")
         val connected = isWifiConnected()
         if (!connected) {
             clearSsidCache()
             return WifiSnapshot(
                 wifiConnected = false,
                 ssid = null,
-                onTrustedWifi = false
+                onTrustedWifi = false,
+                cellularConnected = cellular,
+                transports = transportLabel
             )
         }
         val ssid = currentSsid()
@@ -251,9 +263,41 @@ class WifiConnectivityMonitor(private val context: Context) {
         return WifiSnapshot(
             wifiConnected = true,
             ssid = ssid,
-            onTrustedWifi = onTrusted
+            onTrustedWifi = onTrusted,
+            cellularConnected = cellular,
+            transports = transportLabel
         )
     }
+
+    /**
+     * Active [NetworkCapabilities] transports across all networks (for diagnostics).
+     * Values are short labels: WIFI, CELLULAR, VPN, ETHERNET, BLUETOOTH, OTHER.
+     */
+    fun activeTransports(): Set<String> {
+        val result = linkedSetOf<String>()
+        for (network in connectivityManager.allNetworks) {
+            val caps = connectivityManager.getNetworkCapabilities(network) ?: continue
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
+                result += TRANSPORT_WIFI
+            }
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) {
+                result += TRANSPORT_CELLULAR
+            }
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) {
+                result += TRANSPORT_VPN
+            }
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) {
+                result += TRANSPORT_ETHERNET
+            }
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_BLUETOOTH)) {
+                result += TRANSPORT_BLUETOOTH
+            }
+        }
+        return result
+    }
+
+    fun isCellularConnected(): Boolean =
+        activeTransports().contains(TRANSPORT_CELLULAR)
 
     /**
      * Emits [WifiSnapshot] on network / Wi‑Fi changes.
@@ -271,7 +315,9 @@ class WifiConnectivityMonitor(private val context: Context) {
             val snap = snapshot(trustedSsidsProvider())
             Log.i(
                 TAG,
-                "WiFi snap connected=${snap.wifiConnected} ssid=${snap.ssid} trusted=${snap.onTrustedWifi}"
+                "WiFi snap connected=${snap.wifiConnected} ssid=${snap.ssid} " +
+                    "trusted=${snap.onTrustedWifi} cellular=${snap.cellularConnected} " +
+                    "transports=${snap.transports}"
             )
             trySend(snap)
 
@@ -331,12 +377,17 @@ class WifiConnectivityMonitor(private val context: Context) {
 
         // Separate callback instances — Android forbids registering the same instance twice
         val wifiCallback = newCallback()
+        val cellularCallback = newCallback()
         val defaultCallback = newCallback()
 
         val wifiRequest = NetworkRequest.Builder()
             .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
             .build()
+        val cellularRequest = NetworkRequest.Builder()
+            .addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR)
+            .build()
         connectivityManager.registerNetworkCallback(wifiRequest, wifiCallback)
+        connectivityManager.registerNetworkCallback(cellularRequest, cellularCallback)
         connectivityManager.registerDefaultNetworkCallback(defaultCallback)
 
         // Wi‑Fi stack SSID updates that ConnectivityManager sometimes misses
@@ -362,6 +413,7 @@ class WifiConnectivityMonitor(private val context: Context) {
         awaitClose {
             clearRetries()
             runCatching { connectivityManager.unregisterNetworkCallback(wifiCallback) }
+            runCatching { connectivityManager.unregisterNetworkCallback(cellularCallback) }
             runCatching { connectivityManager.unregisterNetworkCallback(defaultCallback) }
             runCatching { appContext.unregisterReceiver(wifiReceiver) }
         }
@@ -384,6 +436,12 @@ class WifiConnectivityMonitor(private val context: Context) {
 
     companion object {
         private const val TAG = "WifiConnectivityMonitor"
+
+        const val TRANSPORT_WIFI = "WIFI"
+        const val TRANSPORT_CELLULAR = "CELLULAR"
+        const val TRANSPORT_VPN = "VPN"
+        const val TRANSPORT_ETHERNET = "ETHERNET"
+        const val TRANSPORT_BLUETOOTH = "BLUETOOTH"
 
         fun normalizeSsid(raw: String?): String? {
             if (raw.isNullOrBlank()) return null
