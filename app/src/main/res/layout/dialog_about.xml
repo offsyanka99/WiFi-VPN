@@ -51,5 +51,15 @@
         android:text="@string/about_year"
         android:textAppearance="?attr/textAppearanceBodyMedium"
         android:textColor="@color/status_off" />
+
+    <TextView
+        android:id="@+id/aboutEmail"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:autoLink="email"
+        android:text="@string/about_email"
+        android:textAppearance="?attr/textAppearanceBodyMedium"
+        android:textColor="@color/status_off" />
 </LinearLayout>
 

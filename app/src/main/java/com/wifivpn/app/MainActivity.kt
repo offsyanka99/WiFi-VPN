@@ -211,6 +211,7 @@ class MainActivity : AppCompatActivity() {
         about.aboutVersion.text = getString(R.string.about_version, appVersionName())
         about.aboutAuthor.text = getString(R.string.about_author)
         about.aboutYear.text = getString(R.string.about_year)
+        about.aboutEmail.text = getString(R.string.about_email)
 
         MaterialAlertDialogBuilder(this)
             .setView(about.root)

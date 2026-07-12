@@ -19,7 +19,11 @@ Built with **Kotlin + Jetpack** (Foreground Service, ConnectivityManager, DataSt
 
 - **Main** — status card (monitoring, Wi‑Fi, VPN) and start/stop control  
 - **Configuration** — WireGuard config, trusted networks, exclusions, retries, and permissions  
-- **About** — app name, version, and author  
+- **About** — app name, version, author, and contact email  
+
+## Contact
+
+- **Email:** [wifi-vpn@mailbox.org](mailto:wifi-vpn@mailbox.org)
 
 ## Changelog
 
