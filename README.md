@@ -11,6 +11,16 @@ Android app that monitors **trusted Wi‑Fi networks** in the background and aut
 
 Built with **Kotlin + Jetpack** (Foreground Service, ConnectivityManager, DataStore, Material 3) and the official WireGuard tunnel library (`com.wireguard.android:tunnel`).
 
+## Screenshots
+
+| Main | Configuration | About |
+|:----:|:-------------:|:-----:|
+| ![Main screen — monitoring on](docs/screenshots/main-monitoring.png) | ![Configuration](docs/screenshots/configuration.png) | ![About dialog](docs/screenshots/about.png) |
+
+- **Main** — status card (monitoring, Wi‑Fi, VPN) and start/stop control  
+- **Configuration** — WireGuard config, trusted networks, exclusions, retries, and permissions  
+- **About** — app name, version, and author  
+
 ## Changelog
 
 ### 1.3.1
