@@ -32,7 +32,6 @@ Prebuilt release APK (signed):
 | Version | File |
 |---------|------|
 | **1.4.1** | [`releases/wifi-vpn-1.4.1-release.apk`](releases/wifi-vpn-1.4.1-release.apk) |
-| 1.4.0 | [`releases/wifi-vpn-1.4.0-release.apk`](releases/wifi-vpn-1.4.0-release.apk) |
 
 Install with:
 
