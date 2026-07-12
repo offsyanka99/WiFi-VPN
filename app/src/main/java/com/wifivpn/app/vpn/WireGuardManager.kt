@@ -13,6 +13,9 @@ import com.wireguard.android.backend.Tunnel
 import com.wireguard.config.Config
 import com.wireguard.config.Interface
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -21,6 +24,9 @@ import java.io.StringReader
 
 /**
  * Thin wrapper around the WireGuard tunnel library (userspace Go backend).
+ *
+ * Tunnel state is exposed as both a snapshot ([state] / [isUp]) and a
+ * [stateFlow] for UI collectors (Main screen, tile).
  */
 class WireGuardManager(private val context: Context) {
 
@@ -30,7 +36,7 @@ class WireGuardManager(private val context: Context) {
         override fun getName(): String = TUNNEL_NAME
         override fun onStateChange(newState: Tunnel.State) {
             Log.i(TAG, "Tunnel state -> $newState")
-            _state = newState
+            publishState(newState)
             diagnosticLogger()?.i(CAT_TUNNEL, "state_change -> $newState")
         }
     }
@@ -38,11 +44,16 @@ class WireGuardManager(private val context: Context) {
     private fun diagnosticLogger(): DiagnosticLogger? =
         (context.applicationContext as? WifiVpnApp)?.diagnosticLogger
 
-    @Volatile
-    private var _state: Tunnel.State = Tunnel.State.DOWN
-    val state: Tunnel.State get() = _state
+    private val _stateFlow = MutableStateFlow(Tunnel.State.DOWN)
+    val stateFlow: StateFlow<Tunnel.State> = _stateFlow.asStateFlow()
 
-    val isUp: Boolean get() = _state == Tunnel.State.UP
+    val state: Tunnel.State get() = _stateFlow.value
+
+    val isUp: Boolean get() = _stateFlow.value == Tunnel.State.UP
+
+    private fun publishState(newState: Tunnel.State) {
+        _stateFlow.value = newState
+    }
 
     /**
      * Returns an Intent that must be started for result if VPN permission
@@ -93,7 +104,7 @@ class WireGuardManager(private val context: Context) {
     ): Result<Unit> = mutex.withLock {
         withContext(Dispatchers.IO) {
             runCatching {
-                if (_state == Tunnel.State.UP) {
+                if (isUp) {
                     Log.i(TAG, "Tunnel already UP — skip")
                     diagnosticLogger()?.i(CAT_TUNNEL, "bring UP skipped — already UP")
                     return@runCatching
@@ -112,7 +123,7 @@ class WireGuardManager(private val context: Context) {
                         "config ${DiagnosticSupport.configFingerprint(rawConfig)}"
                 )
                 val newState = backend.setState(tunnel, Tunnel.State.UP, config)
-                _state = newState
+                publishState(newState)
                 if (newState != Tunnel.State.UP) {
                     error("Tunnel did not reach UP (state=$newState)")
                 }
@@ -129,10 +140,9 @@ class WireGuardManager(private val context: Context) {
                     "UP failure: ${formatError(e)}",
                     e
                 )
-                // Ensure we don't report UP after a failed attempt
-                if (_state == Tunnel.State.UP) {
+                if (isUp) {
                     runCatching { backend.setState(tunnel, Tunnel.State.DOWN, null) }
-                    _state = Tunnel.State.DOWN
+                    publishState(Tunnel.State.DOWN)
                 }
             }
         }
@@ -141,12 +151,12 @@ class WireGuardManager(private val context: Context) {
     suspend fun setTunnelDown(): Result<Unit> = mutex.withLock {
         withContext(Dispatchers.IO) {
             runCatching {
-                if (_state == Tunnel.State.DOWN) {
+                if (!isUp) {
                     diagnosticLogger()?.i(CAT_TUNNEL, "bring DOWN skipped — already DOWN")
                     return@runCatching
                 }
                 backend.setState(tunnel, Tunnel.State.DOWN, null)
-                _state = Tunnel.State.DOWN
+                publishState(Tunnel.State.DOWN)
                 Log.i(TAG, "WireGuard tunnel DOWN")
                 diagnosticLogger()?.i(CAT_TUNNEL, "DOWN success")
                 Unit

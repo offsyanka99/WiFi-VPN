@@ -9,6 +9,7 @@ import com.wifivpn.app.log.DiagnosticLogger
 import com.wifivpn.app.permission.PermissionCheckWorker
 import com.wifivpn.app.util.AppInfo
 import com.wifivpn.app.vpn.WireGuardManager
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -26,8 +27,27 @@ class WifiVpnApp : Application() {
     lateinit var diagnosticLogger: DiagnosticLogger
         private set
 
-    /** Application-scoped work (no runBlocking on main). */
-    val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    /**
+     * Application-scoped work (no runBlocking on main).
+     * Uncaught coroutine failures are written to the diagnostic log when possible.
+     *
+     * Limits: Java/Kotlin uncaught exceptions and coroutine failures are covered.
+     * Native / WireGuard Go crashes, OOM kills, and force-stops are not.
+     */
+    val applicationScope: CoroutineScope by lazy {
+        val handler = CoroutineExceptionHandler { _, throwable ->
+            Log.e(TAG, "Uncaught coroutine exception", throwable)
+            if (::diagnosticLogger.isInitialized) {
+                diagnosticLogger.logException(
+                    "CRASH",
+                    "uncaught coroutine: ${throwable.javaClass.name}: ${throwable.message}",
+                    throwable,
+                    forceWrite = true
+                )
+            }
+        }
+        CoroutineScope(SupervisorJob() + Dispatchers.Default + handler)
+    }
 
     /** Cached for tile / quick checks without DataStore suspend. */
     @Volatile
@@ -106,6 +126,13 @@ class WifiVpnApp : Application() {
             configRepository.hasWireGuardConfigSync() && cachedTrustedSsids.isNotEmpty()
     }
 
+    /**
+     * Records uncaught JVM exceptions to the diagnostic log (always, even if
+     * routine logging is off), then delegates to the previous handler.
+     *
+     * Does **not** cover: native/WireGuard Go process crashes, OOM, ANR,
+     * or system force-stop. Prefer also checking logcat / Play vitals for those.
+     */
     private fun installUncaughtExceptionHandler() {
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->

@@ -88,6 +88,8 @@
             </intent-filter>
         </service>
 
+        <!-- Not directBootAware: encrypted prefs / DataStore need credential-encrypted storage.
+             Only listen for full BOOT_COMPLETED (and package replace), not LOCKED_BOOT. -->
         <receiver
             android:name=".receiver.BootReceiver"
             android:exported="true"
@@ -95,7 +97,6 @@
             android:directBootAware="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
-                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>

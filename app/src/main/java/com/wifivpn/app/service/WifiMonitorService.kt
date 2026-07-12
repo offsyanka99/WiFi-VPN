@@ -348,6 +348,7 @@ class WifiMonitorService : LifecycleService() {
         monitorJob?.cancel()
         monitorJob = null
         lastPolicyKey = null
+        lastNotificationContent = null
         val wasUp = app.wireGuardManager.isUp
         val downResult = app.wireGuardManager.setTunnelDown()
         app.configRepository.setMonitoringEnabled(false)
@@ -372,6 +373,7 @@ class WifiMonitorService : LifecycleService() {
     }
 
     private fun startAsForeground(content: String) {
+        lastNotificationContent = content
         val notification = buildNotification(content)
         // location: SSID is location-sensitive; keeps reads working with screen off while
         // the monitor FGS is running (while-in-use location permission is enough).
@@ -418,7 +420,12 @@ class WifiMonitorService : LifecycleService() {
         }
     }
 
+    /** Last posted notification text — skip identical updates (less binder noise). */
+    private var lastNotificationContent: String? = null
+
     private fun updateNotification(content: String) {
+        if (content == lastNotificationContent) return
+        lastNotificationContent = content
         val nm = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
         nm.notify(WifiVpnApp.NOTIFICATION_ID, buildNotification(content))
     }

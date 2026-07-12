@@ -74,6 +74,23 @@ class MainActivity : AppCompatActivity() {
                         renderState(state)
                     }
                 }
+                // Keep VPN indicator in sync if tunnel state changes outside a UI-state write
+                launch {
+                    app.wireGuardManager.stateFlow.collectLatest { tunnelState ->
+                        val monitoring = WifiMonitorService.uiState.value.monitoring
+                        if (!monitoring) return@collectLatest
+                        val up = tunnelState == com.wireguard.android.backend.Tunnel.State.UP
+                        binding.statusVpn.text = getString(
+                            if (up) R.string.status_vpn_on else R.string.status_vpn_off
+                        )
+                        binding.statusVpn.setTextColor(
+                            ContextCompat.getColor(
+                                this@MainActivity,
+                                if (up) R.color.status_ok else R.color.status_off
+                            )
+                        )
+                    }
+                }
             }
         }
 

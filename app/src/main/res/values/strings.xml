@@ -115,7 +115,7 @@
     <string name="about_email">wifi-vpn@mailbox.org</string>
     <string name="about_close">Close</string>
     <string name="label_diagnostic_log">Diagnostic log</string>
-    <string name="diagnostic_log_help">Records Wi‑Fi and cellular changes (including SSID redacted / screen-off), network names, VPN on/off, tunnel connect success, retries, configuration changes, permissions, a support summary, and unexpected errors. Uncaught crashes are always saved (even if this switch is off). Send the log by email when troubleshooting from another device.</string>
+    <string name="diagnostic_log_help">Records Wi‑Fi and cellular changes (including SSID redacted / screen-off), network names, VPN on/off, tunnel connect success, retries, configuration changes, permissions, a support summary, and unexpected errors. Uncaught Java/Kotlin crashes and coroutine failures are always saved (even if this switch is off). Native / WireGuard-Go crashes and force-stops may not appear. Send the log by email when troubleshooting from another device.</string>
     <string name="label_enable_diagnostic_logging">Enable logging</string>
     <string name="btn_send_diagnostic_log">Send log via email…</string>
     <string name="btn_clear_diagnostic_log">Clear log</string>

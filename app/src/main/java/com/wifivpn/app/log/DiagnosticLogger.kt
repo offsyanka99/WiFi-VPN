@@ -27,8 +27,10 @@ import kotlinx.coroutines.launch
  * Append-only diagnostic log for multi-device troubleshooting.
  *
  * Routine writes are buffered and flushed on a single IO thread. Crashes always
- * write synchronously with fsync. Uncaught crashes are recorded even when
+ * write synchronously with fsync. Uncaught JVM crashes are recorded even when
  * routine logging is off.
+ *
+ * **Not covered:** native / WireGuard-Go crashes, OOM kills, ANRs, force-stop.
  */
 class DiagnosticLogger(context: Context) {
 

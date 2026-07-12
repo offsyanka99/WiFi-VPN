@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicReference
 
 /**
@@ -39,6 +40,8 @@ import java.util.concurrent.atomic.AtomicReference
  * Wi‑Fi stays associated. We keep a last-known SSID **only for the same association key**
  * (networkId / BSSID) while supplicant is still COMPLETED — never after disconnect or a
  * network change.
+ *
+ * Known networks from callbacks are preferred over deprecated [ConnectivityManager.getAllNetworks].
  */
 class WifiConnectivityMonitor(private val context: Context) {
 
@@ -48,6 +51,10 @@ class WifiConnectivityMonitor(private val context: Context) {
     private val wifiManager =
         appContext.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    /** Networks currently reported available by registered callbacks. */
+    private val knownNetworks: MutableSet<Network> =
+        ConcurrentHashMap.newKeySet()
 
     /** Last readable SSID for [cachedAssociationKey]; only used while that association is live. */
     @Volatile
@@ -106,13 +113,25 @@ class WifiConnectivityMonitor(private val context: Context) {
     }
 
     fun isWifiConnected(): Boolean {
-        // Prefer WifiManager association — avoids scanning allNetworks when possible
+        // Prefer WifiManager association — avoids scanning network lists when possible
         if (isWifiManagerAssociated()) return true
-        @Suppress("DEPRECATION")
-        for (network in connectivityManager.allNetworks) {
+        for (network in candidateNetworks()) {
             if (isWifiNetwork(network)) return true
         }
         return false
+    }
+
+    /**
+     * Prefer callback-tracked networks; fall back to platform enumeration only if empty.
+     */
+    private fun candidateNetworks(): List<Network> {
+        if (knownNetworks.isNotEmpty()) {
+            return knownNetworks.toList()
+        }
+        val active = connectivityManager.activeNetwork
+        if (active != null) return listOf(active)
+        @Suppress("DEPRECATION")
+        return connectivityManager.allNetworks.toList()
     }
 
     private fun isWifiNetwork(network: Network): Boolean {
@@ -194,14 +213,7 @@ class WifiConnectivityMonitor(private val context: Context) {
     }
 
     private fun readLiveSsid(): String? {
-        // 1) Prefer Wi‑Fi NetworkCapabilities.transportInfo (works better with VPN default route)
-        for (network in connectivityManager.allNetworks) {
-            val caps = connectivityManager.getNetworkCapabilities(network) ?: continue
-            if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) continue
-            ssidFromCapabilities(caps)?.let { return it }
-        }
-
-        // 2) Active network if it is Wi‑Fi
+        // 1) Active network first (cheap, often correct under VPN default route too)
         connectivityManager.activeNetwork?.let { network ->
             connectivityManager.getNetworkCapabilities(network)?.let { caps ->
                 if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
@@ -210,7 +222,14 @@ class WifiConnectivityMonitor(private val context: Context) {
             }
         }
 
-        // 3) Legacy WifiManager
+        // 2) Known / candidate networks with Wi‑Fi transportInfo
+        for (network in candidateNetworks()) {
+            val caps = connectivityManager.getNetworkCapabilities(network) ?: continue
+            if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) continue
+            ssidFromCapabilities(caps)?.let { return it }
+        }
+
+        // 3) Legacy WifiManager (connectionInfo is deprecated but still needed on some OEMs)
         return ssidFromWifiManager()
     }
 
@@ -245,7 +264,7 @@ class WifiConnectivityMonitor(private val context: Context) {
             ?.let { return it }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            for (network in connectivityManager.allNetworks) {
+            for (network in candidateNetworks()) {
                 val caps = connectivityManager.getNetworkCapabilities(network) ?: continue
                 if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) continue
                 val info = caps.transportInfo as? WifiInfo
@@ -337,7 +356,7 @@ class WifiConnectivityMonitor(private val context: Context) {
      */
     fun activeTransports(): Set<String> {
         val result = linkedSetOf<String>()
-        for (network in connectivityManager.allNetworks) {
+        for (network in candidateNetworks()) {
             val caps = connectivityManager.getNetworkCapabilities(network) ?: continue
             if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
                 result += TRANSPORT_WIFI
@@ -354,6 +373,10 @@ class WifiConnectivityMonitor(private val context: Context) {
             if (caps.hasTransport(NetworkCapabilities.TRANSPORT_BLUETOOTH)) {
                 result += TRANSPORT_BLUETOOTH
             }
+        }
+        // Association can report Wi‑Fi before callbacks refresh knownNetworks
+        if (TRANSPORT_WIFI !in result && isWifiManagerAssociated()) {
+            result += TRANSPORT_WIFI
         }
         return result
     }
@@ -418,26 +441,48 @@ class WifiConnectivityMonitor(private val context: Context) {
         fun newCallback(): ConnectivityManager.NetworkCallback {
             return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 object : ConnectivityManager.NetworkCallback(FLAG_INCLUDE_LOCATION_INFO) {
-                    override fun onAvailable(network: Network) = scheduleEmit()
-                    override fun onLost(network: Network) = scheduleEmit()
+                    override fun onAvailable(network: Network) {
+                        knownNetworks.add(network)
+                        scheduleEmit()
+                    }
+
+                    override fun onLost(network: Network) {
+                        knownNetworks.remove(network)
+                        scheduleEmit()
+                    }
+
                     override fun onCapabilitiesChanged(
                         network: Network,
                         networkCapabilities: NetworkCapabilities
-                    ) = scheduleEmit()
+                    ) {
+                        knownNetworks.add(network)
+                        scheduleEmit()
+                    }
                 }
             } else {
                 object : ConnectivityManager.NetworkCallback() {
-                    override fun onAvailable(network: Network) = scheduleEmit()
-                    override fun onLost(network: Network) = scheduleEmit()
+                    override fun onAvailable(network: Network) {
+                        knownNetworks.add(network)
+                        scheduleEmit()
+                    }
+
+                    override fun onLost(network: Network) {
+                        knownNetworks.remove(network)
+                        scheduleEmit()
+                    }
+
                     override fun onCapabilitiesChanged(
                         network: Network,
                         networkCapabilities: NetworkCapabilities
-                    ) = scheduleEmit()
+                    ) {
+                        knownNetworks.add(network)
+                        scheduleEmit()
+                    }
                 }
             }
         }
 
-        // Wi‑Fi + default network is enough; drop separate cellular callback to cut noise.
+        // Wi‑Fi + default network is enough; no separate cellular callback.
         val wifiCallback = newCallback()
         val defaultCallback = newCallback()
         val wifiRequest = NetworkRequest.Builder()
@@ -446,6 +491,7 @@ class WifiConnectivityMonitor(private val context: Context) {
         connectivityManager.registerNetworkCallback(wifiRequest, wifiCallback)
         connectivityManager.registerDefaultNetworkCallback(defaultCallback)
 
+        // NETWORK_STATE covers association; avoid deprecated SUPPLICANT_STATE_CHANGED_ACTION
         val wifiReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 scheduleEmit()
@@ -453,7 +499,6 @@ class WifiConnectivityMonitor(private val context: Context) {
         }
         val filter = IntentFilter().apply {
             addAction(WifiManager.NETWORK_STATE_CHANGED_ACTION)
-            addAction(WifiManager.SUPPLICANT_STATE_CHANGED_ACTION)
             addAction(WifiManager.WIFI_STATE_CHANGED_ACTION)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -469,6 +514,7 @@ class WifiConnectivityMonitor(private val context: Context) {
         awaitClose {
             mainHandler.removeCallbacks(debounceEmit)
             clearRetries()
+            knownNetworks.clear()
             runCatching { connectivityManager.unregisterNetworkCallback(wifiCallback) }
             runCatching { connectivityManager.unregisterNetworkCallback(defaultCallback) }
             runCatching { appContext.unregisterReceiver(wifiReceiver) }

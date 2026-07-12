@@ -120,7 +120,7 @@ Tags: `v1.0` / `v1.1` / `v1.1.1` / `v1.2` / `v1.2.1` / `v1.2.2` / `v1.3` / `v1.3
 - **Trusted Wi‑Fi list** — add SSIDs manually or from the current network; VPN turns off only on those networks
 - **Foreground service** with a persistent status notification while monitoring
 - **WireGuard** tunnel via the userspace Go backend (`GoBackend$VpnService`)
-- Load config from a `.conf` file (system file picker); stored in DataStore
+- Load config from a `.conf` file (system file picker); **private keys in encrypted storage** (not plain backup)
 - **Exclude apps** from the VPN (e.g. Android Auto); multi-select list with search
 - Configurable **VPN connect retries** (attempts + delay) with progress in the notification
 - **Diagnostic log** (opt-in; network / VPN / tunnel / config events) with email share for troubleshooting
@@ -179,7 +179,9 @@ Published copy in this repository:
 releases/wifi-vpn-1.4.2-release.apk
 ```
 
-Current release: **1.4.2** (`versionCode` 11). Build outputs under `app/build/` remain gitignored; signed release APKs under `releases/` are tracked.
+Current release: **1.4.2** (`versionCode` 11). Build outputs under `app/build/` remain gitignored; signed release APKs under `releases/` are tracked for convenience.
+
+**Note:** Keeping large APKs in git increases clone size over time. Prefer publishing signed builds as **GitHub Release assets** for future versions, and keep only the latest APK in `releases/` if needed.
 
 ## Setup
 
