@@ -27,16 +27,18 @@ Built with **Kotlin + Jetpack** (Foreground Service, ConnectivityManager, DataSt
 
 ## Download
 
-Prebuilt release APK (signed):
+Signed release APKs are published as **[GitHub Release assets](https://github.com/offsyanka99/WiFi-VPN/releases)** (not stored in git, to keep the repository small).
 
-| Version | File |
-|---------|------|
-| **1.4.2** | [`releases/wifi-vpn-1.4.2-release.apk`](releases/wifi-vpn-1.4.2-release.apk) |
+| Version | Download |
+|---------|----------|
+| **Latest** | [Releases](https://github.com/offsyanka99/WiFi-VPN/releases/latest) |
+| **1.4.2** | [v1.4.2](https://github.com/offsyanka99/WiFi-VPN/releases/tag/v1.4.2) |
 
 Install with:
 
 ```bash
-adb install -r releases/wifi-vpn-1.4.2-release.apk
+# After downloading the APK from the GitHub release page:
+adb install -r wifi-vpn-1.4.2-release.apk
 ```
 
 ## Changelog
@@ -165,23 +167,16 @@ Release builds use signing from `keystore.properties` (see `app/build.gradle.kts
 ```bash
 ./gradlew assembleRelease
 # APK: app/build/outputs/apk/release/wifi-vpn-<version>-release.apk
-# Copy into repo for distribution:
-mkdir -p releases
-cp app/build/outputs/apk/release/wifi-vpn-1.4.2-release.apk releases/
-adb install -r releases/wifi-vpn-1.4.2-release.apk
+adb install -r app/build/outputs/apk/release/wifi-vpn-1.4.2-release.apk
+
+# Publish to GitHub (example) — do not commit the APK:
+gh release create v1.4.2 \
+  app/build/outputs/apk/release/wifi-vpn-1.4.2-release.apk \
+  --title "1.4.2" \
+  --notes "See README changelog."
 ```
 
-### Install release APK
-
-Published copy in this repository:
-
-```text
-releases/wifi-vpn-1.4.2-release.apk
-```
-
-Current release: **1.4.2** (`versionCode` 11). Build outputs under `app/build/` remain gitignored; signed release APKs under `releases/` are tracked for convenience.
-
-**Note:** Keeping large APKs in git increases clone size over time. Prefer publishing signed builds as **GitHub Release assets** for future versions, and keep only the latest APK in `releases/` if needed.
+Current release: **1.4.2** (`versionCode` 11). Build outputs under `app/build/` are gitignored. APKs are distributed via **GitHub Releases**, not the git tree.
 
 ## Setup
 

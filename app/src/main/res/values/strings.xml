@@ -8,6 +8,8 @@
     <string name="notification_untrusted_wifi">Other Wi‑Fi — VPN active</string>
     <string name="notification_wifi_lost">No Wi‑Fi — VPN active</string>
     <string name="notification_waiting">Monitoring Wi‑Fi…</string>
+    <string name="notification_monitoring">Monitoring…</string>
+    <string name="notification_monitoring_stopped">Monitoring stopped</string>
     <string name="notification_error">Error: %1$s</string>
     <string name="vpn_connecting">Connecting VPN…</string>
     <string name="vpn_retrying">VPN connect failed — retry %1$d/%2$d in %3$ds…</string>

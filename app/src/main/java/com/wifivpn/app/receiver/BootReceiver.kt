@@ -11,7 +11,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /**
- * Starts Wi‑Fi monitoring after reboot when the user enabled Auto-start.
+ * Starts Wi‑Fi monitoring after reboot (auto-start) or restores it after app update
+ * when monitoring was previously on.
+ *
  * Also re-schedules the weekly permission check.
  */
 class BootReceiver : BroadcastReceiver() {
@@ -31,29 +33,52 @@ class BootReceiver : BroadcastReceiver() {
         app.applicationScope.launch(Dispatchers.IO) {
             try {
                 app.configRepository.migrateSecureConfigIfNeeded()
-                val autoStart = app.configRepository.isAutoStartEnabled()
-                if (!autoStart) {
-                    Log.i(TAG, "Auto-start off — skip ($action)")
-                    app.diagnosticLogger.i(CAT, "boot action=$action auto_start=off — skip")
+
+                val shouldStart = when (action) {
+                    // Fresh boot: honor auto-start preference
+                    Intent.ACTION_BOOT_COMPLETED ->
+                        app.configRepository.isAutoStartEnabled()
+
+                    // App update/replace: only restore if monitoring was active before update.
+                    // Using auto-start here incorrectly turned VPN on for users who only
+                    // enabled "auto-start after reboot" while currently on trusted Wi‑Fi.
+                    Intent.ACTION_MY_PACKAGE_REPLACED ->
+                        app.configRepository.isMonitoringEnabled()
+
+                    else -> false
+                }
+
+                if (!shouldStart) {
+                    Log.i(TAG, "Skip start after $action (policy off)")
+                    app.diagnosticLogger.i(
+                        CAT,
+                        "boot action=$action skip start " +
+                            "(boot_auto=${app.configRepository.isAutoStartEnabled()} " +
+                            "was_monitoring=${app.configRepository.isMonitoringEnabled()})"
+                    )
                     return@launch
                 }
 
                 val canStart = app.configRepository.canStartMonitoring()
                 if (!canStart) {
-                    Log.w(TAG, "Not configured (config/trusted Wi‑Fi) — skip auto-start")
+                    Log.w(TAG, "Not configured (config/trusted Wi‑Fi) — skip start after $action")
                     app.diagnosticLogger.w(
                         CAT,
-                        "boot action=$action auto_start=on but not configured — skip"
+                        "boot action=$action configured=false — skip"
                     )
                     return@launch
                 }
 
-                Log.i(TAG, "Auto-starting WiFi monitor after $action")
+                val source = when (action) {
+                    Intent.ACTION_MY_PACKAGE_REPLACED -> WifiMonitorService.SOURCE_UPDATE
+                    else -> WifiMonitorService.SOURCE_BOOT
+                }
+                Log.i(TAG, "Starting WiFi monitor after $action source=$source")
                 app.diagnosticLogger.i(
                     CAT,
-                    "boot action=$action auto-starting monitor source=${WifiMonitorService.SOURCE_BOOT}"
+                    "boot action=$action starting monitor source=$source"
                 )
-                WifiMonitorService.start(context, WifiMonitorService.SOURCE_BOOT)
+                WifiMonitorService.start(context, source)
             } finally {
                 pending.finish()
             }

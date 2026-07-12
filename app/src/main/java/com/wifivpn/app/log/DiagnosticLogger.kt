@@ -20,7 +20,10 @@ import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
@@ -45,6 +48,8 @@ class DiagnosticLogger(context: Context) {
     @Volatile
     private var enabled: Boolean = false
 
+    private var periodicFlushJob: Job? = null
+
     private val lineBuffer = StringBuilder(BUFFER_CAPACITY)
     private var lastNetworkMessage: String? = null
     private var lastNetworkAtMs: Long = 0L
@@ -57,10 +62,34 @@ class DiagnosticLogger(context: Context) {
 
     fun setEnabled(value: Boolean) {
         enabled = value
-        if (!value) {
+        if (value) {
+            startPeriodicFlush()
+        } else {
+            stopPeriodicFlush()
             // Flush any pending lines when turning off
             flushAsync()
         }
+    }
+
+    /** Flush buffered lines every [PERIODIC_FLUSH_MS] so process kills lose less history. */
+    private fun startPeriodicFlush() {
+        if (periodicFlushJob?.isActive == true) return
+        periodicFlushJob = writeScope.launch {
+            while (isActive && enabled) {
+                delay(PERIODIC_FLUSH_MS)
+                if (!enabled) break
+                lock.withLock {
+                    if (lineBuffer.isNotEmpty()) {
+                        flushBufferToFileUnlocked()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun stopPeriodicFlush() {
+        periodicFlushJob?.cancel()
+        periodicFlushJob = null
     }
 
     fun logLoggingEnabled() {
@@ -422,5 +451,7 @@ class DiagnosticLogger(context: Context) {
         private const val BUFFER_CAPACITY = 8 * 1024
         private const val BUFFER_FLUSH_CHARS = 4 * 1024
         private const val NETWORK_DEBOUNCE_MS = 1_500L
+        /** Timed flush so buffered INFO lines survive process death better. */
+        private const val PERIODIC_FLUSH_MS = 7_000L
     }
 }

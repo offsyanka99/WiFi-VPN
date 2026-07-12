@@ -82,7 +82,10 @@ class WifiMonitorService : LifecycleService() {
             return
         }
 
-        _uiState.value = _uiState.value.copy(monitoring = true, message = "Monitoring…")
+        _uiState.value = _uiState.value.copy(
+            monitoring = true,
+            message = getString(R.string.notification_monitoring)
+        )
         MonitorTileService.requestUpdate(this)
         app.diagnosticLogger.i(
             CAT_MONITOR,
@@ -92,16 +95,22 @@ class WifiMonitorService : LifecycleService() {
 
         monitorJob = lifecycleScope.launch {
             app.configRepository.setMonitoringEnabled(true)
+            // Load trusted list before any VPN decision (avoids empty-list race after update/boot)
+            val initialTrusted = app.configRepository.getTrustedWifiSsids()
+            wifiMonitor.setTrustedSsids(initialTrusted)
             DiagnosticSupport.logSupportSummary(app, "monitor_start source=$source")
 
             // Keep trusted SSID set in the monitor (used by wifiStatusFlow snapshots)
             launch {
                 app.configRepository.trustedWifiSsids.collect { ssids ->
                     wifiMonitor.setTrustedSsids(ssids)
-                    // Re-evaluate immediately when the trusted list changes
+                    // Re-evaluate when the trusted list changes
                     applyWifiDecision(wifiMonitor.snapshot(ssids))
                 }
             }
+
+            // First decision with known trusted SSIDs (before async flow samples)
+            applyWifiDecision(wifiMonitor.snapshot(initialTrusted))
 
             // Network changes → debounced policy snapshots; collectLatest cancels VPN retries
             wifiMonitor.wifiStatusFlow().collectLatest { snap ->
@@ -180,7 +189,31 @@ class WifiMonitorService : LifecycleService() {
             updateNotification(msg)
             MonitorTileService.requestUpdate(this)
         } else {
-            bringVpnUpWithRetry(snap)
+            // After update/boot, SSID often lags while still on trusted Wi‑Fi.
+            // Brief wait before turning VPN on when Wi‑Fi is up but name is unknown.
+            var effective = snap
+            if (snap.wifiConnected &&
+                snap.ssid == null &&
+                snap.hasSsidPermission &&
+                !app.wireGuardManager.isUp
+            ) {
+                app.diagnosticLogger.i(
+                    CAT_VPN,
+                    "defer VPN up — Wi‑Fi up but SSID unknown (wait ${SSID_RESOLVE_WAIT_MS}ms)"
+                )
+                delay(SSID_RESOLVE_WAIT_MS)
+                effective = wifiMonitor.snapshot(wifiMonitor.getTrustedSsids())
+                if (effective.onTrustedWifi) {
+                    app.diagnosticLogger.i(
+                        CAT_VPN,
+                        "SSID resolved as trusted after wait — VPN stays off"
+                    )
+                    lastPolicyKey = null
+                    applyWifiDecision(effective)
+                    return
+                }
+            }
+            bringVpnUpWithRetry(effective)
         }
     }
 
@@ -353,14 +386,16 @@ class WifiMonitorService : LifecycleService() {
         val downResult = app.wireGuardManager.setTunnelDown()
         app.configRepository.setMonitoringEnabled(false)
         val snap = wifiMonitor.snapshot(app.configRepository.getTrustedWifiSsids())
+        val stoppedMsg = getString(R.string.notification_monitoring_stopped)
         _uiState.value = MonitorUiState(
             monitoring = false,
             wifiConnected = snap.wifiConnected,
             onTrustedWifi = snap.onTrustedWifi,
             currentSsid = snap.ssid,
             vpnActive = false,
-            message = "Monitoring stopped"
+            message = stoppedMsg
         )
+        updateNotification(stoppedMsg)
         MonitorTileService.requestUpdate(this)
         Log.i(TAG, "Monitoring stopped")
         app.diagnosticLogger.i(
@@ -491,7 +526,12 @@ class WifiMonitorService : LifecycleService() {
         const val SOURCE_UI = "ui"
         const val SOURCE_TILE = "tile"
         const val SOURCE_BOOT = "boot"
+        /** Restored after app update (MY_PACKAGE_REPLACED) when monitoring was on. */
+        const val SOURCE_UPDATE = "update"
         const val SOURCE_UNKNOWN = "unknown"
+
+        /** Wait for platform SSID after process start before forcing VPN on. */
+        private const val SSID_RESOLVE_WAIT_MS = 1_500L
 
         fun startIntent(context: Context, source: String = SOURCE_UNKNOWN): Intent =
             Intent(context, WifiMonitorService::class.java).putExtra(EXTRA_START_SOURCE, source)
