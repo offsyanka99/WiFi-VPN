@@ -27,6 +27,8 @@ class WifiVpnApp : Application() {
         instance = this
         configRepository = ConfigRepository(this)
         diagnosticLogger = DiagnosticLogger(this)
+        // Before anything else that might throw — crash lines always hit the log file
+        installUncaughtExceptionHandler()
         val loggingEnabled = runBlocking { configRepository.isDiagnosticLoggingEnabled() }
         diagnosticLogger.setEnabled(loggingEnabled)
         if (loggingEnabled) {
@@ -36,6 +38,27 @@ class WifiVpnApp : Application() {
         wireGuardManager = WireGuardManager(this)
         createNotificationChannels()
         PermissionCheckWorker.schedule(this)
+    }
+
+    /**
+     * Records uncaught exceptions to the diagnostic log (always, even if
+     * routine logging is off), then delegates to the previous handler.
+     */
+    private fun installUncaughtExceptionHandler() {
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            try {
+                diagnosticLogger.logUncaughtCrash(thread, throwable)
+            } catch (_: Throwable) {
+                // Never throw from the crash path
+            }
+            if (previous != null) {
+                previous.uncaughtException(thread, throwable)
+            } else {
+                android.os.Process.killProcess(android.os.Process.myPid())
+                System.exit(10)
+            }
+        }
     }
 
     private fun appVersionName(): String {

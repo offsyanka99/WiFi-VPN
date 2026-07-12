@@ -6,6 +6,7 @@ import android.net.VpnService
 import android.util.Log
 import com.wifivpn.app.WifiVpnApp
 import com.wifivpn.app.log.DiagnosticLogger
+import com.wifivpn.app.log.DiagnosticSupport
 import com.wireguard.android.backend.BackendException
 import com.wireguard.android.backend.GoBackend
 import com.wireguard.android.backend.Tunnel
@@ -107,7 +108,8 @@ class WireGuardManager(private val context: Context) {
                 )
                 diagnosticLogger()?.i(
                     CAT_TUNNEL,
-                    "bringing UP excluded=${config.`interface`.excludedApplications.size}"
+                    "bringing UP excluded=${config.`interface`.excludedApplications.size} " +
+                        "config ${DiagnosticSupport.configFingerprint(rawConfig)}"
                 )
                 val newState = backend.setState(tunnel, Tunnel.State.UP, config)
                 _state = newState
@@ -115,11 +117,18 @@ class WireGuardManager(private val context: Context) {
                     error("Tunnel did not reach UP (state=$newState)")
                 }
                 Log.i(TAG, "WireGuard tunnel UP")
-                diagnosticLogger()?.i(CAT_TUNNEL, "UP success")
+                diagnosticLogger()?.i(
+                    CAT_TUNNEL,
+                    "UP success state=$newState"
+                )
                 Unit
             }.onFailure { e ->
                 Log.e(TAG, "Failed to bring tunnel up: ${formatError(e)}", e)
-                diagnosticLogger()?.e(CAT_TUNNEL, "UP failure: ${formatError(e)}")
+                diagnosticLogger()?.logException(
+                    CAT_TUNNEL,
+                    "UP failure: ${formatError(e)}",
+                    e
+                )
                 // Ensure we don't report UP after a failed attempt
                 if (_state == Tunnel.State.UP) {
                     runCatching { backend.setState(tunnel, Tunnel.State.DOWN, null) }
@@ -143,7 +152,11 @@ class WireGuardManager(private val context: Context) {
                 Unit
             }.onFailure { e ->
                 Log.e(TAG, "Failed to bring tunnel down: ${formatError(e)}", e)
-                diagnosticLogger()?.e(CAT_TUNNEL, "DOWN failure: ${formatError(e)}")
+                diagnosticLogger()?.logException(
+                    CAT_TUNNEL,
+                    "DOWN failure: ${formatError(e)}",
+                    e
+                )
             }
         }
     }

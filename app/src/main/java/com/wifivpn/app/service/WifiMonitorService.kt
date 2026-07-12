@@ -14,6 +14,7 @@ import androidx.lifecycle.lifecycleScope
 import com.wifivpn.app.MainActivity
 import com.wifivpn.app.R
 import com.wifivpn.app.WifiVpnApp
+import com.wifivpn.app.log.DiagnosticSupport
 import com.wifivpn.app.network.WifiConnectivityMonitor
 import com.wifivpn.app.tile.MonitorTileService
 import com.wifivpn.app.vpn.WireGuardManager
@@ -55,28 +56,44 @@ class WifiMonitorService : LifecycleService() {
 
         when (intent?.action) {
             ACTION_STOP -> {
+                val stopSource = intent.getStringExtra(EXTRA_START_SOURCE) ?: SOURCE_UNKNOWN
                 lifecycleScope.launch {
+                    app.diagnosticLogger.i(CAT_MONITOR, "monitoring stop requested source=$stopSource")
                     stopMonitoringInternal()
                     stopSelf()
                 }
                 return START_NOT_STICKY
             }
-            else -> startMonitoring()
+            else -> {
+                val source = intent?.getStringExtra(EXTRA_START_SOURCE) ?: SOURCE_UNKNOWN
+                startMonitoring(source)
+            }
         }
         return START_STICKY
     }
 
-    private fun startMonitoring() {
+    private fun startMonitoring(source: String) {
         startAsForeground(getString(R.string.notification_waiting))
 
-        if (monitorJob?.isActive == true) return
+        if (monitorJob?.isActive == true) {
+            app.diagnosticLogger.i(
+                CAT_MONITOR,
+                "monitoring start ignored (already active) source=$source"
+            )
+            return
+        }
 
         _uiState.value = _uiState.value.copy(monitoring = true, message = "Monitoring…")
         MonitorTileService.requestUpdate(this)
-        app.diagnosticLogger.i(CAT_MONITOR, "monitoring started")
+        app.diagnosticLogger.i(
+            CAT_MONITOR,
+            "monitoring started source=$source " +
+                "perms: ${DiagnosticSupport.permissionSnapshot(this)}"
+        )
 
         monitorJob = lifecycleScope.launch {
             app.configRepository.setMonitoringEnabled(true)
+            DiagnosticSupport.logSupportSummary(app, "monitor_start source=$source")
 
             // Network changes + trusted SSID list changes both re-evaluate VPN
             // collectLatest cancels in-flight VPN retries when the decision changes
@@ -121,10 +138,11 @@ class WifiMonitorService : LifecycleService() {
                         "VPN off (trusted Wi‑Fi) result=success wasUp=$wasUp"
                     )
                 } else {
-                    app.diagnosticLogger.e(
+                    app.diagnosticLogger.logException(
                         CAT_VPN,
                         "VPN off (trusted Wi‑Fi) result=failure " +
-                            "error=${WireGuardManager.formatError(result.exceptionOrNull())}"
+                            "error=${WireGuardManager.formatError(result.exceptionOrNull())}",
+                        result.exceptionOrNull()
                     )
                 }
             } else {
@@ -151,7 +169,11 @@ class WifiMonitorService : LifecycleService() {
         val decision = if (snap.onTrustedWifi) "VPN_OFF" else "VPN_ON"
         app.diagnosticLogger.i(
             CAT_NETWORK,
-            "wifi=$wifiLabel $ssidPart cellular=${if (snap.cellularConnected) "up" else "down"} " +
+            "wifi=$wifiLabel $ssidPart trusted_match=${snap.trustedMatch} " +
+                "ssid_redacted=${snap.ssidRedacted} ssid_from_cache=${snap.ssidFromCache} " +
+                "ssid_perm=${if (snap.hasSsidPermission) "ok" else "no"} " +
+                "screen=${if (snap.screenInteractive) "on" else "off"} " +
+                "cellular=${if (snap.cellularConnected) "up" else "down"} " +
                 "transports=${snap.transports.ifEmpty { "none" }} " +
                 "vpn_before=${if (app.wireGuardManager.isUp) "on" else "off"} " +
                 "decision=$decision"
@@ -196,7 +218,8 @@ class WifiMonitorService : LifecycleService() {
             CAT_VPN,
             "VPN connect starting maxAttempts=$maxAttempts delaySec=${delayMs / 1000} " +
                 "excludedApps=${excluded.size} " +
-                "reason=${if (!snap.wifiConnected) "no_wifi" else "untrusted_wifi"}"
+                "reason=${if (!snap.wifiConnected) "no_wifi" else "untrusted_wifi"} " +
+                "config ${DiagnosticSupport.configFingerprint(config)}"
         )
 
         for (attempt in 1..maxAttempts) {
@@ -281,10 +304,11 @@ class WifiMonitorService : LifecycleService() {
         updateNotification(finalMsg)
         MonitorTileService.requestUpdate(this)
         Log.e(TAG, finalMsg)
-        app.diagnosticLogger.e(
+        app.diagnosticLogger.logException(
             CAT_VPN,
             "tunnel connect GAVE UP after attempts vpn=off " +
-                "error=${WireGuardManager.formatError(lastError)}"
+                "error=${WireGuardManager.formatError(lastError)}",
+            lastError
         )
     }
 
@@ -430,14 +454,22 @@ class WifiMonitorService : LifecycleService() {
         private val _uiState = MutableStateFlow(MonitorUiState())
         val uiState: StateFlow<MonitorUiState> = _uiState.asStateFlow()
 
-        fun startIntent(context: Context): Intent =
+        const val EXTRA_START_SOURCE = "com.wifivpn.app.extra.START_SOURCE"
+        const val SOURCE_UI = "ui"
+        const val SOURCE_TILE = "tile"
+        const val SOURCE_BOOT = "boot"
+        const val SOURCE_UNKNOWN = "unknown"
+
+        fun startIntent(context: Context, source: String = SOURCE_UNKNOWN): Intent =
+            Intent(context, WifiMonitorService::class.java).putExtra(EXTRA_START_SOURCE, source)
+
+        fun stopIntent(context: Context, source: String = SOURCE_UNKNOWN): Intent =
             Intent(context, WifiMonitorService::class.java)
+                .setAction(ACTION_STOP)
+                .putExtra(EXTRA_START_SOURCE, source)
 
-        fun stopIntent(context: Context): Intent =
-            Intent(context, WifiMonitorService::class.java).setAction(ACTION_STOP)
-
-        fun start(context: Context) {
-            val intent = startIntent(context)
+        fun start(context: Context, source: String = SOURCE_UNKNOWN) {
+            val intent = startIntent(context, source)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
             } else {
@@ -445,8 +477,8 @@ class WifiMonitorService : LifecycleService() {
             }
         }
 
-        fun stop(context: Context) {
-            context.startService(stopIntent(context))
+        fun stop(context: Context, source: String = SOURCE_UNKNOWN) {
+            context.startService(stopIntent(context, source))
         }
     }
 }

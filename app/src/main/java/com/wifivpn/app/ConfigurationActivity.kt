@@ -28,6 +28,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.wifivpn.app.data.ConfigRepository
 import com.wifivpn.app.databinding.ActivityConfigurationBinding
 import com.wifivpn.app.databinding.ItemWifiSsidBinding
+import com.wifivpn.app.log.DiagnosticSupport
 import com.wifivpn.app.network.WifiConnectivityMonitor
 import com.wifivpn.app.tile.MonitorTileService
 import kotlinx.coroutines.flow.collectLatest
@@ -486,10 +487,18 @@ class ConfigurationActivity : AppCompatActivity() {
                     )
                 }
                 app.configRepository.setWireGuardConfig(raw, fileName)
-                logConfig("wireguard_config loaded file=$fileName bytes=${raw.length}")
+                logConfig(
+                    "wireguard_config loaded file=$fileName bytes=${raw.length} " +
+                        "fingerprint=${DiagnosticSupport.configFingerprint(raw)}"
+                )
                 MonitorTileService.requestUpdate(this@ConfigurationActivity)
                 toast(getString(R.string.msg_config_saved))
             } catch (e: Exception) {
+                app.diagnosticLogger.logException(
+                    CAT_CONFIG,
+                    "wireguard_config import failed: ${e.message ?: e.javaClass.simpleName}",
+                    e
+                )
                 toast(getString(R.string.msg_config_read_failed, e.message ?: "error"))
             }
         }
@@ -708,44 +717,66 @@ class ConfigurationActivity : AppCompatActivity() {
         syncingDiagnosticLogSwitch = false
     }
 
-    private fun updateDiagnosticLogActionsEnabled(enabled: Boolean) {
-        binding.btnSendDiagnosticLog.isEnabled = enabled
-        binding.btnClearDiagnosticLog.isEnabled = enabled
+    private fun updateDiagnosticLogActionsEnabled(loggingEnabled: Boolean) {
+        // Allow send/clear if logging is on, or if a file already exists (e.g. crash-only).
+        val canUseLog = loggingEnabled || app.diagnosticLogger.logFileExists()
+        binding.btnSendDiagnosticLog.isEnabled = canUseLog
+        binding.btnClearDiagnosticLog.isEnabled = canUseLog
     }
 
     private fun sendDiagnosticLog() {
-        if (!app.diagnosticLogger.isEnabled()) return
         val logger = app.diagnosticLogger
+        if (!logger.isEnabled() && !logger.hasContent()) return
         if (!logger.hasContent()) {
             toast(getString(R.string.msg_diagnostic_log_empty))
             return
         }
-        logger.i("UI", "user requested send diagnostic log via email")
-        val version = appVersionName()
-        val device = "${Build.MANUFACTURER} ${Build.MODEL}"
-        val androidLabel = "${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})"
-        val body = getString(R.string.diagnostic_log_email_body, version, device, androidLabel)
-        val intent = logger.createEmailShareIntent(
-            subject = getString(R.string.diagnostic_log_email_subject),
-            body = body,
-            toAddress = getString(R.string.about_email),
-            chooserTitle = getString(R.string.diagnostic_log_share_title)
-        )
-        if (intent == null) {
-            toast(getString(R.string.msg_diagnostic_log_share_failed))
-            return
-        }
-        try {
-            startActivity(intent)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to launch log share", e)
-            toast(getString(R.string.msg_diagnostic_log_share_failed))
+        lifecycleScope.launch {
+            logger.i("UI", "user requested send diagnostic log via email")
+            // Temporarily enable summary write if only a crash file exists while toggle is off
+            val wasEnabled = logger.isEnabled()
+            if (!wasEnabled) {
+                logger.setEnabled(true)
+            }
+            try {
+                DiagnosticSupport.logSupportSummary(app, "send_log")
+                logger.i(
+                    "SUPPORT",
+                    "perms at send: ${DiagnosticSupport.permissionSnapshot(this@ConfigurationActivity)}"
+                )
+            } finally {
+                if (!wasEnabled) {
+                    logger.setEnabled(false)
+                }
+            }
+            val version = appVersionName()
+            val device = "${Build.MANUFACTURER} ${Build.MODEL}"
+            val androidLabel = "${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})"
+            val body = getString(R.string.diagnostic_log_email_body, version, device, androidLabel)
+            val intent = logger.createEmailShareIntent(
+                subject = getString(R.string.diagnostic_log_email_subject),
+                body = body,
+                toAddress = getString(R.string.about_email),
+                chooserTitle = getString(R.string.diagnostic_log_share_title)
+            )
+            if (intent == null) {
+                toast(getString(R.string.msg_diagnostic_log_share_failed))
+                return@launch
+            }
+            try {
+                startActivity(intent)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to launch log share", e)
+                app.diagnosticLogger.logException("UI", "diagnostic log share failed", e)
+                toast(getString(R.string.msg_diagnostic_log_share_failed))
+            }
         }
     }
 
     private fun clearDiagnosticLog() {
-        if (!app.diagnosticLogger.isEnabled()) return
+        if (!app.diagnosticLogger.isEnabled() && !app.diagnosticLogger.hasContent()) return
         app.diagnosticLogger.clear()
+        updateDiagnosticLogActionsEnabled(app.diagnosticLogger.isEnabled())
         toast(getString(R.string.msg_diagnostic_log_cleared))
     }
 

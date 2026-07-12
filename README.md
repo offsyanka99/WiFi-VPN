@@ -1,6 +1,6 @@
 # WiFi VPN
 
-**Version 1.4.1**
+**Version 1.4.2**
 
 Android app that monitors **trusted Wi‑Fi networks** in the background and automatically controls a **WireGuard** tunnel:
 
@@ -31,15 +31,21 @@ Prebuilt release APK (signed):
 
 | Version | File |
 |---------|------|
-| **1.4.1** | [`releases/wifi-vpn-1.4.1-release.apk`](releases/wifi-vpn-1.4.1-release.apk) |
+| **1.4.2** | [`releases/wifi-vpn-1.4.2-release.apk`](releases/wifi-vpn-1.4.2-release.apk) |
 
 Install with:
 
 ```bash
-adb install -r releases/wifi-vpn-1.4.1-release.apk
+adb install -r releases/wifi-vpn-1.4.2-release.apk
 ```
 
 ## Changelog
+
+### 1.4.2
+
+- Richer diagnostic log: **permission/battery snapshot**, **SSID redacted / screen-off** flags, **config fingerprint** (no secrets), monitor **start source** (UI / tile / boot)
+- **Support summary** line when monitoring starts and when sending the log by email
+- Uncaught crashes and key exceptions recorded in the diagnostic log (crashes even if logging is off)
 
 ### 1.4.1
 
@@ -106,7 +112,7 @@ adb install -r releases/wifi-vpn-1.4.1-release.apk
 | **`release/1.0`** | Stable **v1.0** release line (bugfixes only if needed) |
 | **`main`** | Ongoing development for future versions |
 
-Tags: `v1.0` / `v1.1` / `v1.1.1` / `v1.2` / `v1.2.1` / `v1.2.2` / `v1.3` / `v1.3.1` / `v1.4.0` / `v1.4.1` mark release points.
+Tags: `v1.0` / `v1.1` / `v1.1.1` / `v1.2` / `v1.2.1` / `v1.2.2` / `v1.3` / `v1.3.1` / `v1.4.0` / `v1.4.1` / `v1.4.2` mark release points.
 
 ## Features
 
@@ -151,7 +157,7 @@ source ~/.bashrc
 cd /path/to/WiFi-VPN
 ./gradlew assembleDebug
 # APK: app/build/outputs/apk/debug/wifi-vpn-<version>-debug.apk
-adb install -r app/build/outputs/apk/debug/wifi-vpn-1.4.1-debug.apk
+adb install -r app/build/outputs/apk/debug/wifi-vpn-1.4.2-debug.apk
 ```
 
 Release builds use signing from `keystore.properties` (see `app/build.gradle.kts`). Keystore files and that properties file are gitignored.
@@ -161,8 +167,8 @@ Release builds use signing from `keystore.properties` (see `app/build.gradle.kts
 # APK: app/build/outputs/apk/release/wifi-vpn-<version>-release.apk
 # Copy into repo for distribution:
 mkdir -p releases
-cp app/build/outputs/apk/release/wifi-vpn-1.4.1-release.apk releases/
-adb install -r releases/wifi-vpn-1.4.1-release.apk
+cp app/build/outputs/apk/release/wifi-vpn-1.4.2-release.apk releases/
+adb install -r releases/wifi-vpn-1.4.2-release.apk
 ```
 
 ### Install release APK
@@ -170,10 +176,10 @@ adb install -r releases/wifi-vpn-1.4.1-release.apk
 Published copy in this repository:
 
 ```text
-releases/wifi-vpn-1.4.1-release.apk
+releases/wifi-vpn-1.4.2-release.apk
 ```
 
-Current release: **1.4.1** (`versionCode` 10). Build outputs under `app/build/` remain gitignored; signed release APKs under `releases/` are tracked.
+Current release: **1.4.2** (`versionCode` 11). Build outputs under `app/build/` remain gitignored; signed release APKs under `releases/` are tracked.
 
 ## Setup
 

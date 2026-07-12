@@ -237,7 +237,8 @@ class MainActivity : AppCompatActivity() {
             WifiMonitorService.instance != null
 
         if (running) {
-            WifiMonitorService.stop(this)
+            app.diagnosticLogger.i("UI", "stop monitoring requested source=ui")
+            WifiMonitorService.stop(this, WifiMonitorService.SOURCE_UI)
             return
         }
         startMonitoringInternal(fromTile = false)
@@ -280,7 +281,13 @@ class MainActivity : AppCompatActivity() {
             }
 
             try {
-                WifiMonitorService.start(this@MainActivity)
+                val source = if (fromTile) {
+                    WifiMonitorService.SOURCE_TILE
+                } else {
+                    WifiMonitorService.SOURCE_UI
+                }
+                app.diagnosticLogger.i("UI", "start monitoring requested source=$source")
+                WifiMonitorService.start(this@MainActivity, source)
                 MonitorTileService.requestUpdate(this@MainActivity)
                 if (fromTile) {
                     // Return to previous app / home after QS start
@@ -288,6 +295,7 @@ class MainActivity : AppCompatActivity() {
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to start monitoring", e)
+                app.diagnosticLogger.logException("UI", "Failed to start monitoring", e)
                 toast(e.message ?: e.javaClass.simpleName)
             }
         }

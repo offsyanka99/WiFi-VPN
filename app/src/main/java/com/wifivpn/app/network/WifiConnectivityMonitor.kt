@@ -16,6 +16,7 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.util.Log
 import androidx.core.content.ContextCompat
 import com.wifivpn.app.data.ConfigRepository
@@ -66,7 +67,20 @@ class WifiConnectivityMonitor(private val context: Context) {
          * Active network transports for diagnostics, e.g. `WIFI`, `CELLULAR`, `VPN`.
          * Sorted, comma-separated; empty when nothing is up.
          */
-        val transports: String = ""
+        val transports: String = "",
+        /**
+         * Wi‑Fi associated but live SSID unreadable while permission is granted
+         * (typical when the screen is locked / platform redacts SSID).
+         */
+        val ssidRedacted: Boolean = false,
+        /** Resolved SSID came from last-known cache, not a live system read. */
+        val ssidFromCache: Boolean = false,
+        /** [PowerManager.isInteractive] — false when screen is off / non-interactive. */
+        val screenInteractive: Boolean = true,
+        /** Trusted list match: `exact`, `none`, `unknown` (no SSID), or `n/a` (offline). */
+        val trustedMatch: String = "n/a",
+        /** Whether location / nearby Wi‑Fi permission allows reading SSID. */
+        val hasSsidPermission: Boolean = false
     )
 
     fun isWifiConnected(): Boolean {
@@ -247,6 +261,8 @@ class WifiConnectivityMonitor(private val context: Context) {
         val cellular = transports.contains(TRANSPORT_CELLULAR)
         val transportLabel = transports.sorted().joinToString(",")
         val connected = isWifiConnected()
+        val screenInteractive = isScreenInteractive()
+        val hasPerm = hasSsidPermission()
         if (!connected) {
             clearSsidCache()
             return WifiSnapshot(
@@ -254,19 +270,42 @@ class WifiConnectivityMonitor(private val context: Context) {
                 ssid = null,
                 onTrustedWifi = false,
                 cellularConnected = cellular,
-                transports = transportLabel
+                transports = transportLabel,
+                ssidRedacted = false,
+                ssidFromCache = false,
+                screenInteractive = screenInteractive,
+                trustedMatch = "n/a",
+                hasSsidPermission = hasPerm
             )
         }
+        val live = if (hasPerm) readLiveSsid() else null
         val ssid = currentSsid()
+        val ssidRedacted = live == null && hasPerm
+        val ssidFromCache = live == null && ssid != null
         val onTrusted = ssid != null &&
             trustedSsids.any { it.equals(ssid, ignoreCase = true) }
+        val trustedMatch = when {
+            ssid == null -> "unknown"
+            onTrusted -> "exact"
+            else -> "none"
+        }
         return WifiSnapshot(
             wifiConnected = true,
             ssid = ssid,
             onTrustedWifi = onTrusted,
             cellularConnected = cellular,
-            transports = transportLabel
+            transports = transportLabel,
+            ssidRedacted = ssidRedacted,
+            ssidFromCache = ssidFromCache,
+            screenInteractive = screenInteractive,
+            trustedMatch = trustedMatch,
+            hasSsidPermission = hasPerm
         )
+    }
+
+    fun isScreenInteractive(): Boolean {
+        val pm = appContext.getSystemService(PowerManager::class.java) ?: return true
+        return pm.isInteractive
     }
 
     /**

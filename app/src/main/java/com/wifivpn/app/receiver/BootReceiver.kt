@@ -44,8 +44,11 @@ class BootReceiver : BroadcastReceiver() {
         }
 
         Log.i(TAG, "Auto-starting WiFi monitor after $action")
-        app.diagnosticLogger.i(CAT, "boot action=$action auto-starting monitor")
-        WifiMonitorService.start(context)
+        app.diagnosticLogger.i(
+            CAT,
+            "boot action=$action auto-starting monitor source=${WifiMonitorService.SOURCE_BOOT}"
+        )
+        WifiMonitorService.start(context, WifiMonitorService.SOURCE_BOOT)
     }
 
     companion object {

@@ -43,7 +43,11 @@ class MonitorTileService : TileService() {
             WifiMonitorService.instance != null
 
         if (running) {
-            WifiMonitorService.stop(this)
+            (applicationContext as? WifiVpnApp)?.diagnosticLogger?.i(
+                "UI",
+                "stop monitoring requested source=${WifiMonitorService.SOURCE_TILE}"
+            )
+            WifiMonitorService.stop(this, WifiMonitorService.SOURCE_TILE)
             // VPN will drop as service stops; reflect immediately
             applyTileAppearance(
                 running = false,

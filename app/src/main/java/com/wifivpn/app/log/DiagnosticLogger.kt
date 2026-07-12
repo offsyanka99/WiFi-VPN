@@ -21,13 +21,15 @@ import kotlin.concurrent.withLock
  * Append-only diagnostic log for multi-device troubleshooting.
  *
  * Captures network changes (Wi‑Fi / cellular), SSID, VPN on/off, tunnel
- * connect success/failure, retry attempts, and user configuration changes.
+ * connect success/failure, retry attempts, user configuration changes,
+ * caught exceptions, and uncaught crashes.
  * The file can be shared via email.
  *
- * Logging is opt-in via [setEnabled]. Thread-safe; also mirrors lines to logcat
- * under tag [TAG] when enabled. Rotates (keeps recent half) when the file
- * exceeds [MAX_BYTES] (~3 MiB), using a stream so the full file is never held
- * in memory.
+ * Logging is opt-in via [setEnabled]. Uncaught crashes are always written
+ * (even when logging is off) so a post-crash log can still be shared.
+ * Thread-safe; also mirrors lines to logcat under tag [TAG] when writing.
+ * Rotates (keeps recent half) when the file exceeds [MAX_BYTES] (~3 MiB),
+ * using a stream so the full file is never held in memory.
  */
 class DiagnosticLogger(context: Context) {
 
@@ -48,6 +50,7 @@ class DiagnosticLogger(context: Context) {
     /**
      * Enables or disables file (and logcat mirror) logging.
      * Does not write to the file; use [logLoggingEnabled] when the user turns logging on.
+     * Crash records still write when disabled — see [logUncaughtCrash].
      */
     fun setEnabled(value: Boolean) {
         enabled = value
@@ -84,6 +87,54 @@ class DiagnosticLogger(context: Context) {
     fun w(category: String, message: String) = log("WARN", category, message)
 
     fun e(category: String, message: String) = log("ERROR", category, message)
+
+    /**
+     * Logs an unexpected error with optional stack trace (when diagnostic logging is on).
+     */
+    fun logException(
+        category: String,
+        message: String,
+        throwable: Throwable?,
+        forceWrite: Boolean = false
+    ) {
+        if (!enabled && !forceWrite) return
+        lock.withLock {
+            appendUnlocked("ERROR", category, message, skipRotate = forceWrite)
+            if (throwable != null) {
+                writeStackUnlocked(category, throwable, skipRotate = forceWrite)
+            }
+            if (forceWrite) {
+                flushToDiskUnlocked()
+            }
+        }
+    }
+
+    /**
+     * Uncaught exception path — always writes to the log file and fsyncs,
+     * even if the user has not enabled routine diagnostic logging.
+     * Must not throw; process is about to die.
+     */
+    fun logUncaughtCrash(thread: Thread, throwable: Throwable) {
+        try {
+            lock.withLock {
+                appendUnlocked(
+                    "ERROR",
+                    CAT_CRASH,
+                    "uncaught on thread=${thread.name} " +
+                        "(id=${thread.id}): ${throwable.javaClass.name}: ${throwable.message}",
+                    skipRotate = true
+                )
+                writeStackUnlocked(CAT_CRASH, throwable, skipRotate = true)
+                flushToDiskUnlocked()
+            }
+        } catch (t: Throwable) {
+            // Last resort — never rethrow from a crash handler
+            try {
+                Log.e(TAG, "Failed to write crash to diagnostic log", t)
+            } catch (_: Throwable) {
+            }
+        }
+    }
 
     fun log(
         level: String,
@@ -167,8 +218,15 @@ class DiagnosticLogger(context: Context) {
         return Intent.createChooser(send, chooserTitle)
     }
 
-    private fun appendUnlocked(level: String, category: String, message: String) {
-        rotateIfNeededUnlocked()
+    private fun appendUnlocked(
+        level: String,
+        category: String,
+        message: String,
+        skipRotate: Boolean = false
+    ) {
+        if (!skipRotate) {
+            rotateIfNeededUnlocked()
+        }
         val line = "${timeFormat.format(Date())} $level [$category] $message"
         try {
             logFile.appendText(line + "\n")
@@ -182,6 +240,41 @@ class DiagnosticLogger(context: Context) {
         }
     }
 
+    private fun writeStackUnlocked(
+        category: String,
+        throwable: Throwable,
+        skipRotate: Boolean
+    ) {
+        val stack = buildString {
+            append(throwable.stackTraceToString().trimEnd())
+        }
+        val lines = stack.lineSequence().take(MAX_STACK_LINES).toList()
+        for (raw in lines) {
+            val line = raw.trimEnd()
+            if (line.isEmpty()) continue
+            appendUnlocked("ERROR", category, "| $line", skipRotate = skipRotate)
+        }
+        if (stack.lineSequence().count() > MAX_STACK_LINES) {
+            appendUnlocked(
+                "ERROR",
+                category,
+                "| … stack truncated after $MAX_STACK_LINES lines",
+                skipRotate = skipRotate
+            )
+        }
+    }
+
+    /** Best-effort fsync so crash lines survive process death. */
+    private fun flushToDiskUnlocked() {
+        try {
+            FileOutputStream(logFile, /* append = */ true).use { fos ->
+                fos.fd.sync()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "fsync diagnostic log failed", e)
+        }
+    }
+
     private fun writeHeaderUnlocked(reason: String) {
         appendUnlocked(
             "INFO",
@@ -192,7 +285,7 @@ class DiagnosticLogger(context: Context) {
 
     /**
      * If the file exceeds [MAX_BYTES], keep the last ~half so recent events survive.
-     * Streams via a temp file — never loads the whole log into heap (important at 1 GiB).
+     * Streams via a temp file — never loads the whole log into heap.
      */
     private fun rotateIfNeededUnlocked() {
         if (!logFile.exists() || logFile.length() < MAX_BYTES) return
@@ -236,10 +329,13 @@ class DiagnosticLogger(context: Context) {
 
     companion object {
         private const val TAG = "DiagnosticLog"
+        private const val CAT_CRASH = "CRASH"
         private const val LOG_DIR_NAME = "logs"
         private const val LOG_FILE_NAME = "wifi-vpn-diagnostic.log"
         /** Soft cap before rotation (3 MiB). */
         private const val MAX_BYTES = 3L * 1024L * 1024L
         private const val STREAM_BUF = 64 * 1024
+        /** Cap stack dump size so a crash cannot explode the log. */
+        private const val MAX_STACK_LINES = 80
     }
 }
