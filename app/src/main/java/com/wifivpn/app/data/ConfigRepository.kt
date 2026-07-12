@@ -28,6 +28,7 @@ class ConfigRepository(private val context: Context) {
         val trustedWifiSsids = stringSetPreferencesKey("trusted_wifi_ssids")
         val vpnRetryAttempts = intPreferencesKey("vpn_retry_attempts")
         val vpnRetryDelaySeconds = intPreferencesKey("vpn_retry_delay_seconds")
+        val diagnosticLoggingEnabled = booleanPreferencesKey("diagnostic_logging_enabled")
     }
 
     val wireGuardConfig: Flow<String> = context.dataStore.data.map { prefs ->
@@ -60,6 +61,11 @@ class ConfigRepository(private val context: Context) {
 
     val vpnRetryDelaySeconds: Flow<Int> = context.dataStore.data.map { prefs ->
         clampRetryDelaySeconds(prefs[keys.vpnRetryDelaySeconds] ?: DEFAULT_VPN_RETRY_DELAY_SECONDS)
+    }
+
+    /** Opt-in diagnostic file logging (off by default). */
+    val diagnosticLoggingEnabled: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[keys.diagnosticLoggingEnabled] ?: false
     }
 
     suspend fun getWireGuardConfig(): String {
@@ -158,6 +164,16 @@ class ConfigRepository(private val context: Context) {
     suspend fun setVpnRetryDelaySeconds(seconds: Int) {
         context.dataStore.edit { prefs ->
             prefs[keys.vpnRetryDelaySeconds] = clampRetryDelaySeconds(seconds)
+        }
+    }
+
+    suspend fun isDiagnosticLoggingEnabled(): Boolean {
+        return context.dataStore.data.first()[keys.diagnosticLoggingEnabled] ?: false
+    }
+
+    suspend fun setDiagnosticLoggingEnabled(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[keys.diagnosticLoggingEnabled] = enabled
         }
     }
 

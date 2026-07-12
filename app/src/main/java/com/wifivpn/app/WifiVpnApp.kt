@@ -9,6 +9,7 @@ import com.wifivpn.app.data.ConfigRepository
 import com.wifivpn.app.log.DiagnosticLogger
 import com.wifivpn.app.permission.PermissionCheckWorker
 import com.wifivpn.app.vpn.WireGuardManager
+import kotlinx.coroutines.runBlocking
 
 class WifiVpnApp : Application() {
 
@@ -26,7 +27,11 @@ class WifiVpnApp : Application() {
         instance = this
         configRepository = ConfigRepository(this)
         diagnosticLogger = DiagnosticLogger(this)
-        diagnosticLogger.logSessionStart(appVersionName())
+        val loggingEnabled = runBlocking { configRepository.isDiagnosticLoggingEnabled() }
+        diagnosticLogger.setEnabled(loggingEnabled)
+        if (loggingEnabled) {
+            diagnosticLogger.logSessionStart(appVersionName())
+        }
         // After logger so tunnel events can be recorded immediately
         wireGuardManager = WireGuardManager(this)
         createNotificationChannels()

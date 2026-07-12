@@ -101,7 +101,17 @@ class ExcludeAppsActivity : AppCompatActivity() {
 
     private fun saveAndFinish() {
         lifecycleScope.launch {
-            app.configRepository.setExcludedApps(selected.toSet())
+            val packages = selected.toSet()
+            app.configRepository.setExcludedApps(packages)
+            val list = if (packages.isEmpty()) {
+                "(none)"
+            } else {
+                packages.sorted().joinToString(",")
+            }
+            app.diagnosticLogger.i(
+                "CONFIG",
+                "excluded_apps count=${packages.size} packages=$list"
+            )
             Toast.makeText(this@ExcludeAppsActivity, R.string.msg_exclusions_saved, Toast.LENGTH_SHORT)
                 .show()
             finish()

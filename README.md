@@ -1,6 +1,6 @@
 # WiFi VPN
 
-**Version 1.4.0**
+**Version 1.4.1**
 
 Android app that monitors **trusted Wi‑Fi networks** in the background and automatically controls a **WireGuard** tunnel:
 
@@ -31,15 +31,23 @@ Prebuilt release APK (signed):
 
 | Version | File |
 |---------|------|
-| **1.4.0** | [`releases/wifi-vpn-1.4.0-release.apk`](releases/wifi-vpn-1.4.0-release.apk) |
+| **1.4.1** | [`releases/wifi-vpn-1.4.1-release.apk`](releases/wifi-vpn-1.4.1-release.apk) |
+| 1.4.0 | [`releases/wifi-vpn-1.4.0-release.apk`](releases/wifi-vpn-1.4.0-release.apk) |
 
 Install with:
 
 ```bash
-adb install -r releases/wifi-vpn-1.4.0-release.apk
+adb install -r releases/wifi-vpn-1.4.1-release.apk
 ```
 
 ## Changelog
+
+### 1.4.1
+
+- **Enable logging** toggle on the Diagnostic log section (opt-in); Send log / Clear log only active when logging is on
+- Turning logging off asks whether to **delete** the log file or **keep** it on the device
+- Diagnostic log also records **configuration changes** (WireGuard load/clear, trusted Wi‑Fi, exclusions, retries, auto-start, permissions, etc.)
+- Log file soft cap **3 MiB** with streamed rotation (keeps recent half)
 
 ### 1.4.0
 
@@ -99,7 +107,7 @@ adb install -r releases/wifi-vpn-1.4.0-release.apk
 | **`release/1.0`** | Stable **v1.0** release line (bugfixes only if needed) |
 | **`main`** | Ongoing development for future versions |
 
-Tags: `v1.0` / `v1.1` / `v1.1.1` / `v1.2` / `v1.2.1` / `v1.2.2` / `v1.3` / `v1.3.1` / `v1.4.0` mark release points.
+Tags: `v1.0` / `v1.1` / `v1.1.1` / `v1.2` / `v1.2.1` / `v1.2.2` / `v1.3` / `v1.3.1` / `v1.4.0` / `v1.4.1` mark release points.
 
 ## Features
 
@@ -110,7 +118,7 @@ Tags: `v1.0` / `v1.1` / `v1.1.1` / `v1.2` / `v1.2.1` / `v1.2.2` / `v1.3` / `v1.3
 - Load config from a `.conf` file (system file picker); stored in DataStore
 - **Exclude apps** from the VPN (e.g. Android Auto); multi-select list with search
 - Configurable **VPN connect retries** (attempts + delay) with progress in the notification
-- **Diagnostic log** (network / VPN / tunnel events) with email share for troubleshooting
+- **Diagnostic log** (opt-in; network / VPN / tunnel / config events) with email share for troubleshooting
 - **Weekly permission check** with alert notification if critical permissions are disabled
 - **Auto-start after reboot** (optional switch; requires config + at least one trusted SSID)
 - **Battery optimization** exemption request and **Manage app if unused** shortcut (system settings)
@@ -144,7 +152,7 @@ source ~/.bashrc
 cd /path/to/WiFi-VPN
 ./gradlew assembleDebug
 # APK: app/build/outputs/apk/debug/wifi-vpn-<version>-debug.apk
-adb install -r app/build/outputs/apk/debug/wifi-vpn-1.4.0-debug.apk
+adb install -r app/build/outputs/apk/debug/wifi-vpn-1.4.1-debug.apk
 ```
 
 Release builds use signing from `keystore.properties` (see `app/build.gradle.kts`). Keystore files and that properties file are gitignored.
@@ -154,8 +162,8 @@ Release builds use signing from `keystore.properties` (see `app/build.gradle.kts
 # APK: app/build/outputs/apk/release/wifi-vpn-<version>-release.apk
 # Copy into repo for distribution:
 mkdir -p releases
-cp app/build/outputs/apk/release/wifi-vpn-1.4.0-release.apk releases/
-adb install -r releases/wifi-vpn-1.4.0-release.apk
+cp app/build/outputs/apk/release/wifi-vpn-1.4.1-release.apk releases/
+adb install -r releases/wifi-vpn-1.4.1-release.apk
 ```
 
 ### Install release APK
@@ -163,10 +171,10 @@ adb install -r releases/wifi-vpn-1.4.0-release.apk
 Published copy in this repository:
 
 ```text
-releases/wifi-vpn-1.4.0-release.apk
+releases/wifi-vpn-1.4.1-release.apk
 ```
 
-Current release: **1.4.0** (`versionCode` 9). Build outputs under `app/build/` remain gitignored; signed release APKs under `releases/` are tracked.
+Current release: **1.4.1** (`versionCode` 10). Build outputs under `app/build/` remain gitignored; signed release APKs under `releases/` are tracked.
 
 ## Setup
 

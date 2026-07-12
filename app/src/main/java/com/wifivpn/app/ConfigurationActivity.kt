@@ -46,6 +46,7 @@ class ConfigurationActivity : AppCompatActivity() {
     /** Avoid reacting while we sync switch UI from system state. */
     private var syncingBatterySwitch = false
     private var syncingUnusedSwitch = false
+    private var syncingDiagnosticLogSwitch = false
 
     private var retryAttempts: Int = ConfigRepository.DEFAULT_VPN_RETRY_ATTEMPTS
     private var retryDelaySeconds: Int = ConfigRepository.DEFAULT_VPN_RETRY_DELAY_SECONDS
@@ -80,15 +81,18 @@ class ConfigurationActivity : AppCompatActivity() {
         updateVpnPermissionButton()
         when {
             resultCode == RESULT_OK && !stillNeedsPermission -> {
+                logConfig("vpn_permission granted")
                 toast(getString(R.string.msg_vpn_permission_granted))
             }
             resultCode == RESULT_OK && stillNeedsPermission -> {
+                logConfig("vpn_permission still_missing after OK result")
                 showInfoDialog(
                     R.string.msg_vpn_permission_title,
                     getString(R.string.msg_vpn_permission_still_missing)
                 )
             }
             else -> {
+                logConfig("vpn_permission denied or cancelled resultCode=$resultCode")
                 showInfoDialog(
                     R.string.msg_vpn_permission_title,
                     getString(R.string.msg_vpn_permission_denied)
@@ -150,6 +154,10 @@ class ConfigurationActivity : AppCompatActivity() {
         }
         binding.btnSendDiagnosticLog.setOnClickListener { sendDiagnosticLog() }
         binding.btnClearDiagnosticLog.setOnClickListener { clearDiagnosticLog() }
+        binding.switchDiagnosticLogging.setOnCheckedChangeListener { button, isChecked ->
+            if (!button.isPressed || syncingDiagnosticLogSwitch) return@setOnCheckedChangeListener
+            onDiagnosticLoggingToggled(isChecked)
+        }
         binding.switchBatteryOptimization.setOnCheckedChangeListener { button, isChecked ->
             if (!button.isPressed || syncingBatterySwitch) return@setOnCheckedChangeListener
             onBatteryOptimizationToggled(isChecked)
@@ -193,6 +201,16 @@ class ConfigurationActivity : AppCompatActivity() {
                     }
                 }
                 launch {
+                    app.configRepository.diagnosticLoggingEnabled.collectLatest { enabled ->
+                        syncingDiagnosticLogSwitch = true
+                        if (binding.switchDiagnosticLogging.isChecked != enabled) {
+                            binding.switchDiagnosticLogging.isChecked = enabled
+                        }
+                        updateDiagnosticLogActionsEnabled(enabled)
+                        syncingDiagnosticLogSwitch = false
+                    }
+                }
+                launch {
                     app.configRepository.vpnRetryAttempts.collectLatest { value ->
                         retryAttempts = value
                         renderRetryUi()
@@ -230,20 +248,24 @@ class ConfigurationActivity : AppCompatActivity() {
     private fun adjustRetryAttempts(delta: Int) {
         val next = ConfigRepository.clampRetryAttempts(retryAttempts + delta)
         if (next == retryAttempts) return
+        val previous = retryAttempts
         retryAttempts = next
         renderRetryUi()
         lifecycleScope.launch {
             app.configRepository.setVpnRetryAttempts(next)
+            logConfig("vpn_retry_attempts $previous -> $next")
         }
     }
 
     private fun adjustRetryDelay(delta: Int) {
         val next = ConfigRepository.clampRetryDelaySeconds(retryDelaySeconds + delta)
         if (next == retryDelaySeconds) return
+        val previous = retryDelaySeconds
         retryDelaySeconds = next
         renderRetryUi()
         lifecycleScope.launch {
             app.configRepository.setVpnRetryDelaySeconds(next)
+            logConfig("vpn_retry_delay_seconds $previous -> $next")
         }
     }
 
@@ -323,6 +345,7 @@ class ConfigurationActivity : AppCompatActivity() {
         if (wantExempt == currentlyExempt) return
 
         if (wantExempt) {
+            logConfig("battery_optimization user requested exemption")
             try {
                 val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
                     data = Uri.parse("package:$packageName")
@@ -344,6 +367,7 @@ class ConfigurationActivity : AppCompatActivity() {
             }
         } else {
             // Cannot revoke exemption programmatically; open system settings.
+            logConfig("battery_optimization user opened system settings to re-enable")
             try {
                 batteryOptLauncher.launch(
                     Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
@@ -400,6 +424,7 @@ class ConfigurationActivity : AppCompatActivity() {
         }
         // Cannot change this from a normal app — always open the system screen.
         // Revert the switch to the real system value until the user returns.
+        logConfig("manage_unused user opened system settings want_manage_on=$wantManageOn")
         refreshUnusedAppSwitch()
         openUnusedAppRestrictionsSettings()
         toast(getString(R.string.msg_manage_unused_open))
@@ -461,6 +486,7 @@ class ConfigurationActivity : AppCompatActivity() {
                     )
                 }
                 app.configRepository.setWireGuardConfig(raw, fileName)
+                logConfig("wireguard_config loaded file=$fileName bytes=${raw.length}")
                 MonitorTileService.requestUpdate(this@ConfigurationActivity)
                 toast(getString(R.string.msg_config_saved))
             } catch (e: Exception) {
@@ -483,6 +509,7 @@ class ConfigurationActivity : AppCompatActivity() {
     private fun clearConfig() {
         lifecycleScope.launch {
             app.configRepository.clearWireGuardConfig()
+            logConfig("wireguard_config cleared")
             MonitorTileService.requestUpdate(this@ConfigurationActivity)
             toast(getString(R.string.msg_config_cleared))
         }
@@ -503,6 +530,7 @@ class ConfigurationActivity : AppCompatActivity() {
             row.btnRemoveSsid.setOnClickListener {
                 lifecycleScope.launch {
                     app.configRepository.removeTrustedWifiSsid(ssid)
+                    logConfig("trusted_wifi removed ssid=$ssid")
                     toast(getString(R.string.msg_wifi_removed, ssid))
                 }
             }
@@ -521,6 +549,7 @@ class ConfigurationActivity : AppCompatActivity() {
             val added = app.configRepository.addTrustedWifiSsid(normalized)
             if (added) {
                 binding.ssidInput.text?.clear()
+                logConfig("trusted_wifi added ssid=$normalized source=manual")
                 toast(getString(R.string.msg_wifi_added, normalized))
             } else {
                 toast(getString(R.string.msg_wifi_exists, normalized))
@@ -542,6 +571,7 @@ class ConfigurationActivity : AppCompatActivity() {
         lifecycleScope.launch {
             val added = app.configRepository.addTrustedWifiSsid(ssid)
             if (added) {
+                logConfig("trusted_wifi added ssid=$ssid source=current")
                 toast(getString(R.string.msg_wifi_added, ssid))
             } else {
                 toast(getString(R.string.msg_wifi_exists, ssid))
@@ -599,6 +629,7 @@ class ConfigurationActivity : AppCompatActivity() {
                 return@launch
             }
             app.configRepository.setAutoStartEnabled(isChecked)
+            logConfig("auto_start ${if (isChecked) "enabled" else "disabled"}")
             toast(
                 getString(
                     if (isChecked) R.string.msg_auto_start_on else R.string.msg_auto_start_off
@@ -607,7 +638,83 @@ class ConfigurationActivity : AppCompatActivity() {
         }
     }
 
+    private fun onDiagnosticLoggingToggled(isChecked: Boolean) {
+        if (isChecked) {
+            lifecycleScope.launch {
+                app.configRepository.setDiagnosticLoggingEnabled(true)
+                app.diagnosticLogger.setEnabled(true)
+                app.diagnosticLogger.logLoggingEnabled()
+                updateDiagnosticLogActionsEnabled(true)
+                toast(getString(R.string.msg_diagnostic_log_enabled))
+            }
+            return
+        }
+
+        // Turning off: if a log file exists, ask delete vs keep; Cancel restores the switch.
+        if (app.diagnosticLogger.logFileExists()) {
+            if (isFinishing || isDestroyed) return
+            MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.dialog_disable_diagnostic_log_title)
+                .setMessage(R.string.dialog_disable_diagnostic_log_message)
+                .setPositiveButton(R.string.btn_delete_log) { _, _ ->
+                    disableDiagnosticLogging(deleteLog = true)
+                }
+                .setNegativeButton(R.string.btn_keep_log) { _, _ ->
+                    disableDiagnosticLogging(deleteLog = false)
+                }
+                .setNeutralButton(R.string.btn_cancel) { _, _ ->
+                    restoreDiagnosticLoggingSwitch(true)
+                }
+                .setOnCancelListener {
+                    restoreDiagnosticLoggingSwitch(true)
+                }
+                .show()
+        } else {
+            disableDiagnosticLogging(deleteLog = false)
+        }
+    }
+
+    private fun disableDiagnosticLogging(deleteLog: Boolean) {
+        lifecycleScope.launch {
+            // Log while still enabled, then disable (and optionally delete the file).
+            logConfig(
+                "diagnostic_logging disabled delete_log=$deleteLog"
+            )
+            app.diagnosticLogger.setEnabled(false)
+            if (deleteLog) {
+                app.diagnosticLogger.deleteLogFile()
+            }
+            app.configRepository.setDiagnosticLoggingEnabled(false)
+            updateDiagnosticLogActionsEnabled(false)
+            toast(
+                getString(
+                    if (deleteLog) {
+                        R.string.msg_diagnostic_log_disabled_deleted
+                    } else {
+                        R.string.msg_diagnostic_log_disabled_kept
+                    }
+                )
+            )
+        }
+    }
+
+    private fun logConfig(message: String) {
+        app.diagnosticLogger.i(CAT_CONFIG, message)
+    }
+
+    private fun restoreDiagnosticLoggingSwitch(enabled: Boolean) {
+        syncingDiagnosticLogSwitch = true
+        binding.switchDiagnosticLogging.isChecked = enabled
+        syncingDiagnosticLogSwitch = false
+    }
+
+    private fun updateDiagnosticLogActionsEnabled(enabled: Boolean) {
+        binding.btnSendDiagnosticLog.isEnabled = enabled
+        binding.btnClearDiagnosticLog.isEnabled = enabled
+    }
+
     private fun sendDiagnosticLog() {
+        if (!app.diagnosticLogger.isEnabled()) return
         val logger = app.diagnosticLogger
         if (!logger.hasContent()) {
             toast(getString(R.string.msg_diagnostic_log_empty))
@@ -637,6 +744,7 @@ class ConfigurationActivity : AppCompatActivity() {
     }
 
     private fun clearDiagnosticLog() {
+        if (!app.diagnosticLogger.isEnabled()) return
         app.diagnosticLogger.clear()
         toast(getString(R.string.msg_diagnostic_log_cleared))
     }
@@ -677,5 +785,6 @@ class ConfigurationActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "ConfigurationActivity"
+        private const val CAT_CONFIG = "CONFIG"
     }
 }

@@ -480,11 +480,20 @@
                     android:orientation="vertical"
                     android:padding="16dp">
 
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchDiagnosticLogging"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/label_enable_diagnostic_logging"
+                        android:textAppearance="?attr/textAppearanceBodyLarge" />
+
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btnSendDiagnosticLog"
                         style="@style/Widget.Material3.Button.TonalButton"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:enabled="false"
                         android:text="@string/btn_send_diagnostic_log" />
 
                     <com.google.android.material.button.MaterialButton
@@ -492,6 +501,7 @@
                         style="@style/Widget.Material3.Button.TextButton"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
+                        android:enabled="false"
                         android:text="@string/btn_clear_diagnostic_log" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
