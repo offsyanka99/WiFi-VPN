@@ -7,29 +7,28 @@ import android.os.Build
 import android.util.Log
 import androidx.core.content.FileProvider
 import java.io.BufferedInputStream
+import java.io.BufferedWriter
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.OutputStreamWriter
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /**
  * Append-only diagnostic log for multi-device troubleshooting.
  *
- * Captures network changes (Wi‑Fi / cellular), SSID, VPN on/off, tunnel
- * connect success/failure, retry attempts, user configuration changes,
- * caught exceptions, and uncaught crashes.
- * The file can be shared via email.
- *
- * Logging is opt-in via [setEnabled]. Uncaught crashes are always written
- * (even when logging is off) so a post-crash log can still be shared.
- * Thread-safe; also mirrors lines to logcat under tag [TAG] when writing.
- * Rotates (keeps recent half) when the file exceeds [MAX_BYTES] (~3 MiB),
- * using a stream so the full file is never held in memory.
+ * Routine writes are buffered and flushed on a single IO thread. Crashes always
+ * write synchronously with fsync. Uncaught crashes are recorded even when
+ * routine logging is off.
  */
 class DiagnosticLogger(context: Context) {
 
@@ -38,8 +37,15 @@ class DiagnosticLogger(context: Context) {
     private val logDir: File = File(appContext.filesDir, LOG_DIR_NAME).also { it.mkdirs() }
     private val logFile: File = File(logDir, LOG_FILE_NAME)
 
+    private val writeScope =
+        CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(1))
+
     @Volatile
     private var enabled: Boolean = false
+
+    private val lineBuffer = StringBuilder(BUFFER_CAPACITY)
+    private var lastNetworkMessage: String? = null
+    private var lastNetworkAtMs: Long = 0L
 
     private val timeFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US).apply {
         timeZone = TimeZone.getDefault()
@@ -47,39 +53,41 @@ class DiagnosticLogger(context: Context) {
 
     fun isEnabled(): Boolean = enabled
 
-    /**
-     * Enables or disables file (and logcat mirror) logging.
-     * Does not write to the file; use [logLoggingEnabled] when the user turns logging on.
-     * Crash records still write when disabled — see [logUncaughtCrash].
-     */
     fun setEnabled(value: Boolean) {
         enabled = value
+        if (!value) {
+            // Flush any pending lines when turning off
+            flushAsync()
+        }
     }
 
-    /** User turned logging on in settings — write a clear marker. */
     fun logLoggingEnabled() {
         if (!enabled) return
-        lock.withLock {
-            if (!logFile.exists() || logFile.length() == 0L) {
-                writeHeaderUnlocked("logging enabled")
-            } else {
-                appendUnlocked("INFO", "SESSION", "logging enabled")
+        writeScope.launch {
+            lock.withLock {
+                val empty = (!logFile.exists() || logFile.length() == 0L) && lineBuffer.isEmpty()
+                val msg = if (empty) {
+                    "logging enabled | WiFi VPN diagnostic log " +
+                        "(timezone=${TimeZone.getDefault().id})"
+                } else {
+                    "logging enabled"
+                }
+                appendLineUnlocked("INFO", "SESSION", msg)
+                flushBufferToFileUnlocked()
             }
         }
     }
 
-    /** Call when the process starts so sessions are easy to find in the file. */
     fun logSessionStart(appVersion: String) {
         if (!enabled) return
-        lock.withLock {
-            appendUnlocked(
-                "INFO",
-                "SESSION",
-                "app_start version=$appVersion " +
-                    "android=${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}) " +
-                    "device=${Build.MANUFACTURER} ${Build.MODEL}"
-            )
-        }
+        enqueue(
+            "INFO",
+            "SESSION",
+            "app_start version=$appVersion " +
+                "android=${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}) " +
+                "device=${Build.MANUFACTURER} ${Build.MODEL}",
+            forceSync = false
+        )
     }
 
     fun i(category: String, message: String) = log("INFO", category, message)
@@ -88,9 +96,6 @@ class DiagnosticLogger(context: Context) {
 
     fun e(category: String, message: String) = log("ERROR", category, message)
 
-    /**
-     * Logs an unexpected error with optional stack trace (when diagnostic logging is on).
-     */
     fun logException(
         category: String,
         message: String,
@@ -98,26 +103,36 @@ class DiagnosticLogger(context: Context) {
         forceWrite: Boolean = false
     ) {
         if (!enabled && !forceWrite) return
-        lock.withLock {
-            appendUnlocked("ERROR", category, message, skipRotate = forceWrite)
-            if (throwable != null) {
-                writeStackUnlocked(category, throwable, skipRotate = forceWrite)
+        if (forceWrite) {
+            lock.withLock {
+                appendLineUnlocked("ERROR", category, message, skipRotate = true)
+                if (throwable != null) {
+                    writeStackUnlocked(category, throwable, skipRotate = true)
+                }
+                flushBufferToFileUnlocked()
+                fsyncUnlocked()
             }
-            if (forceWrite) {
-                flushToDiskUnlocked()
+            mirrorLogcat("ERROR", category, message)
+            return
+        }
+        enqueue("ERROR", category, message, forceSync = false)
+        if (throwable != null) {
+            val stackLines = throwable.stackTraceToString().lineSequence()
+                .take(MAX_STACK_LINES)
+                .toList()
+            for (raw in stackLines) {
+                val line = raw.trimEnd()
+                if (line.isNotEmpty()) {
+                    enqueue("ERROR", category, "| $line", forceSync = false)
+                }
             }
         }
     }
 
-    /**
-     * Uncaught exception path — always writes to the log file and fsyncs,
-     * even if the user has not enabled routine diagnostic logging.
-     * Must not throw; process is about to die.
-     */
     fun logUncaughtCrash(thread: Thread, throwable: Throwable) {
         try {
             lock.withLock {
-                appendUnlocked(
+                appendLineUnlocked(
                     "ERROR",
                     CAT_CRASH,
                     "uncaught on thread=${thread.name} " +
@@ -125,10 +140,15 @@ class DiagnosticLogger(context: Context) {
                     skipRotate = true
                 )
                 writeStackUnlocked(CAT_CRASH, throwable, skipRotate = true)
-                flushToDiskUnlocked()
+                flushBufferToFileUnlocked()
+                fsyncUnlocked()
             }
+            mirrorLogcat(
+                "ERROR",
+                CAT_CRASH,
+                "uncaught ${throwable.javaClass.simpleName}: ${throwable.message}"
+            )
         } catch (t: Throwable) {
-            // Last resort — never rethrow from a crash handler
             try {
                 Log.e(TAG, "Failed to write crash to diagnostic log", t)
             } catch (_: Throwable) {
@@ -136,37 +156,49 @@ class DiagnosticLogger(context: Context) {
         }
     }
 
-    fun log(
-        level: String,
-        category: String,
-        message: String
-    ) {
+    fun log(level: String, category: String, message: String) {
         if (!enabled) return
-        lock.withLock {
-            appendUnlocked(level, category, message)
+        if (category == CAT_NETWORK) {
+            val now = System.currentTimeMillis()
+            if (message == lastNetworkMessage && now - lastNetworkAtMs < NETWORK_DEBOUNCE_MS) {
+                return
+            }
+            lastNetworkMessage = message
+            lastNetworkAtMs = now
         }
+        enqueue(level, category, message, forceSync = false)
     }
 
-    fun logFile(): File = logFile
+    fun logFile(): File {
+        flushSync()
+        return logFile
+    }
 
-    fun logFileExists(): Boolean = lock.withLock {
-        logFile.exists() && logFile.length() > 0L
+    fun logFileExists(): Boolean {
+        flushSync()
+        return lock.withLock {
+            logFile.exists() && logFile.length() > 0L
+        }
     }
 
     fun hasContent(): Boolean = logFileExists()
 
     fun clear() {
         lock.withLock {
+            lineBuffer.clear()
+            lastNetworkMessage = null
             logFile.writeText("")
             if (enabled) {
-                writeHeaderUnlocked("log cleared")
+                appendLineUnlocked("INFO", "SESSION", "log cleared", skipRotate = true)
+                flushBufferToFileUnlocked()
             }
         }
     }
 
-    /** Permanently removes the log file from app storage. */
     fun deleteLogFile() {
         lock.withLock {
+            lineBuffer.clear()
+            lastNetworkMessage = null
             if (logFile.exists()) {
                 if (!logFile.delete()) {
                     logFile.writeText("")
@@ -175,16 +207,21 @@ class DiagnosticLogger(context: Context) {
         }
     }
 
-    /**
-     * Builds an [Intent.ACTION_SEND] chooser with the log file attached.
-     * Returns null if the file is empty or the URI cannot be created.
-     */
+    /** Block until buffered lines are on disk (call before email share). */
+    fun flushSync() {
+        lock.withLock {
+            flushBufferToFileUnlocked()
+            fsyncUnlocked()
+        }
+    }
+
     fun createEmailShareIntent(
         subject: String,
         body: String,
         toAddress: String? = null,
         chooserTitle: String? = null
     ): Intent? {
+        flushSync()
         val file = logFile
         if (!file.exists() || file.length() == 0L) return null
 
@@ -208,7 +245,6 @@ class DiagnosticLogger(context: Context) {
                 putExtra(Intent.EXTRA_EMAIL, arrayOf(toAddress))
             }
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            // Some clients need ClipData to honor read permission on the stream
             clipData = android.content.ClipData.newUri(
                 appContext.contentResolver,
                 "diagnostic log",
@@ -218,26 +254,55 @@ class DiagnosticLogger(context: Context) {
         return Intent.createChooser(send, chooserTitle)
     }
 
-    private fun appendUnlocked(
+    private fun enqueue(
+        level: String,
+        category: String,
+        message: String,
+        forceSync: Boolean
+    ) {
+        mirrorLogcat(level, category, message)
+        if (forceSync) {
+            lock.withLock {
+                appendLineUnlocked(level, category, message)
+                flushBufferToFileUnlocked()
+            }
+            return
+        }
+        writeScope.launch {
+            lock.withLock {
+                appendLineUnlocked(level, category, message)
+                if (lineBuffer.length >= BUFFER_FLUSH_CHARS ||
+                    level == "ERROR" ||
+                    category == "SESSION" ||
+                    category == "CRASH" ||
+                    category == "SUPPORT"
+                ) {
+                    flushBufferToFileUnlocked()
+                }
+            }
+        }
+    }
+
+    private fun flushAsync() {
+        writeScope.launch {
+            lock.withLock {
+                flushBufferToFileUnlocked()
+            }
+        }
+    }
+
+    private fun appendLineUnlocked(
         level: String,
         category: String,
         message: String,
         skipRotate: Boolean = false
     ) {
-        if (!skipRotate) {
+        if (!skipRotate && logFile.length() + lineBuffer.length >= MAX_BYTES) {
+            flushBufferToFileUnlocked()
             rotateIfNeededUnlocked()
         }
-        val line = "${timeFormat.format(Date())} $level [$category] $message"
-        try {
-            logFile.appendText(line + "\n")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to write diagnostic log", e)
-        }
-        when (level) {
-            "ERROR" -> Log.e(TAG, "[$category] $message")
-            "WARN" -> Log.w(TAG, "[$category] $message")
-            else -> Log.i(TAG, "[$category] $message")
-        }
+        val line = "${timeFormat.format(Date())} $level [$category] $message\n"
+        lineBuffer.append(line)
     }
 
     private fun writeStackUnlocked(
@@ -245,17 +310,15 @@ class DiagnosticLogger(context: Context) {
         throwable: Throwable,
         skipRotate: Boolean
     ) {
-        val stack = buildString {
-            append(throwable.stackTraceToString().trimEnd())
-        }
+        val stack = throwable.stackTraceToString().trimEnd()
         val lines = stack.lineSequence().take(MAX_STACK_LINES).toList()
         for (raw in lines) {
             val line = raw.trimEnd()
             if (line.isEmpty()) continue
-            appendUnlocked("ERROR", category, "| $line", skipRotate = skipRotate)
+            appendLineUnlocked("ERROR", category, "| $line", skipRotate = skipRotate)
         }
         if (stack.lineSequence().count() > MAX_STACK_LINES) {
-            appendUnlocked(
+            appendLineUnlocked(
                 "ERROR",
                 category,
                 "| … stack truncated after $MAX_STACK_LINES lines",
@@ -264,9 +327,27 @@ class DiagnosticLogger(context: Context) {
         }
     }
 
-    /** Best-effort fsync so crash lines survive process death. */
-    private fun flushToDiskUnlocked() {
+    private fun flushBufferToFileUnlocked() {
+        if (lineBuffer.isEmpty()) return
         try {
+            if (!logFile.exists() || logFile.length() == 0L) {
+                // optional: nothing
+            }
+            rotateIfNeededUnlocked()
+            FileOutputStream(logFile, /* append = */ true).use { fos ->
+                BufferedWriter(OutputStreamWriter(fos, Charsets.UTF_8), STREAM_BUF).use { writer ->
+                    writer.append(lineBuffer)
+                }
+            }
+            lineBuffer.clear()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to write diagnostic log", e)
+        }
+    }
+
+    private fun fsyncUnlocked() {
+        try {
+            if (!logFile.exists()) return
             FileOutputStream(logFile, /* append = */ true).use { fos ->
                 fos.fd.sync()
             }
@@ -275,18 +356,19 @@ class DiagnosticLogger(context: Context) {
         }
     }
 
-    private fun writeHeaderUnlocked(reason: String) {
-        appendUnlocked(
-            "INFO",
-            "SESSION",
-            "$reason | WiFi VPN diagnostic log (timezone=${TimeZone.getDefault().id})"
-        )
+    private fun mirrorLogcat(level: String, category: String, message: String) {
+        // Keep logcat quieter: only WARN/ERROR (and CRASH always)
+        when (level) {
+            "ERROR" -> Log.e(TAG, "[$category] $message")
+            "WARN" -> Log.w(TAG, "[$category] $message")
+            else -> {
+                if (Log.isLoggable(TAG, Log.DEBUG)) {
+                    Log.d(TAG, "[$category] $message")
+                }
+            }
+        }
     }
 
-    /**
-     * If the file exceeds [MAX_BYTES], keep the last ~half so recent events survive.
-     * Streams via a temp file — never loads the whole log into heap.
-     */
     private fun rotateIfNeededUnlocked() {
         if (!logFile.exists() || logFile.length() < MAX_BYTES) return
         val temp = File(logDir, "$LOG_FILE_NAME.tmp")
@@ -304,7 +386,6 @@ class DiagnosticLogger(context: Context) {
                         skipped += n
                     }
                 }
-                // Align to next newline so retained content starts at a full line
                 while (true) {
                     val b = input.read()
                     if (b < 0 || b == '\n'.code) break
@@ -330,12 +411,14 @@ class DiagnosticLogger(context: Context) {
     companion object {
         private const val TAG = "DiagnosticLog"
         private const val CAT_CRASH = "CRASH"
+        private const val CAT_NETWORK = "NETWORK"
         private const val LOG_DIR_NAME = "logs"
         private const val LOG_FILE_NAME = "wifi-vpn-diagnostic.log"
-        /** Soft cap before rotation (3 MiB). */
         private const val MAX_BYTES = 3L * 1024L * 1024L
         private const val STREAM_BUF = 64 * 1024
-        /** Cap stack dump size so a crash cannot explode the log. */
         private const val MAX_STACK_LINES = 80
+        private const val BUFFER_CAPACITY = 8 * 1024
+        private const val BUFFER_FLUSH_CHARS = 4 * 1024
+        private const val NETWORK_DEBOUNCE_MS = 1_500L
     }
 }

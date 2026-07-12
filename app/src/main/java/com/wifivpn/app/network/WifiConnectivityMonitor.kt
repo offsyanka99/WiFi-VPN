@@ -20,10 +20,13 @@ import android.os.PowerManager
 import android.util.Log
 import androidx.core.content.ContextCompat
 import com.wifivpn.app.data.ConfigRepository
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Observes Wi‑Fi connectivity and current SSID (when permissions allow).
@@ -54,6 +57,15 @@ class WifiConnectivityMonitor(private val context: Context) {
     @Volatile
     private var cachedAssociationKey: String? = null
 
+    /** Latest trusted SSID list for snapshots inside [wifiStatusFlow]. */
+    private val trustedSsidsRef = AtomicReference<Set<String>>(emptySet())
+
+    fun setTrustedSsids(ssids: Set<String>) {
+        trustedSsidsRef.set(ssids)
+    }
+
+    fun getTrustedSsids(): Set<String> = trustedSsidsRef.get()
+
     data class WifiSnapshot(
         /** Any Wi‑Fi transport is up (associated / internet path). */
         val wifiConnected: Boolean,
@@ -81,15 +93,26 @@ class WifiConnectivityMonitor(private val context: Context) {
         val trustedMatch: String = "n/a",
         /** Whether location / nearby Wi‑Fi permission allows reading SSID. */
         val hasSsidPermission: Boolean = false
-    )
+    ) {
+        /**
+         * Equality for VPN policy decisions (ignores screen-only diagnostic fields).
+         */
+        fun samePolicyAs(other: WifiSnapshot): Boolean =
+            wifiConnected == other.wifiConnected &&
+                ssid == other.ssid &&
+                onTrustedWifi == other.onTrustedWifi &&
+                cellularConnected == other.cellularConnected &&
+                transports == other.transports
+    }
 
     fun isWifiConnected(): Boolean {
+        // Prefer WifiManager association — avoids scanning allNetworks when possible
+        if (isWifiManagerAssociated()) return true
+        @Suppress("DEPRECATION")
         for (network in connectivityManager.allNetworks) {
             if (isWifiNetwork(network)) return true
         }
-        // Fallback: real association only (helps when caps lag under VPN). Do not treat a
-        // stale networkId as connected — that kept VPN off after leaving Wi‑Fi.
-        return isWifiManagerAssociated()
+        return false
     }
 
     private fun isWifiNetwork(network: Network): Boolean {
@@ -340,99 +363,92 @@ class WifiConnectivityMonitor(private val context: Context) {
 
     /**
      * Emits [WifiSnapshot] on network / Wi‑Fi changes.
-     * When Wi‑Fi is up but SSID is still unknown, retries a few times (common right after a roam).
+     *
+     * Uses the trusted SSID set from [setTrustedSsids]. Emissions are debounced and
+     * filtered to policy-relevant changes (see [WifiSnapshot.samePolicyAs]).
+     * When Wi‑Fi is up but SSID is still unknown, retries a few times after a roam.
      */
-    fun wifiStatusFlow(trustedSsidsProvider: () -> Set<String>): Flow<WifiSnapshot> = callbackFlow {
+    @OptIn(FlowPreview::class)
+    fun wifiStatusFlow(): Flow<WifiSnapshot> = callbackFlow {
         val retryRunnables = mutableListOf<Runnable>()
+        val debounceEmit = object : Runnable {
+            override fun run() {
+                val snap = snapshot(trustedSsidsRef.get())
+                if (Log.isLoggable(TAG, Log.DEBUG)) {
+                    Log.d(
+                        TAG,
+                        "WiFi snap connected=${snap.wifiConnected} ssid=${snap.ssid} " +
+                            "trusted=${snap.onTrustedWifi} transports=${snap.transports}"
+                    )
+                }
+                trySend(snap)
+
+                if (snap.wifiConnected && snap.ssid == null && hasSsidPermission()) {
+                    clearRetries()
+                    val delaysMs = longArrayOf(300L, 800L, 1600L, 3200L)
+                    delaysMs.forEach { delayMs ->
+                        val r = Runnable {
+                            val retry = snapshot(trustedSsidsRef.get())
+                            trySend(retry)
+                        }
+                        retryRunnables += r
+                        mainHandler.postDelayed(r, delayMs)
+                    }
+                } else if (snap.ssid != null) {
+                    clearRetries()
+                }
+            }
+
+            fun clearRetries() {
+                retryRunnables.forEach { mainHandler.removeCallbacks(it) }
+                retryRunnables.clear()
+            }
+        }
+
+        fun scheduleEmit() {
+            mainHandler.removeCallbacks(debounceEmit)
+            mainHandler.postDelayed(debounceEmit, EMIT_DEBOUNCE_MS)
+        }
 
         fun clearRetries() {
             retryRunnables.forEach { mainHandler.removeCallbacks(it) }
             retryRunnables.clear()
         }
 
-        fun emitCurrent() {
-            val snap = snapshot(trustedSsidsProvider())
-            Log.i(
-                TAG,
-                "WiFi snap connected=${snap.wifiConnected} ssid=${snap.ssid} " +
-                    "trusted=${snap.onTrustedWifi} cellular=${snap.cellularConnected} " +
-                    "transports=${snap.transports}"
-            )
-            trySend(snap)
-
-            // SSID often lags a few hundred ms after switching networks / while VPN is up
-            if (snap.wifiConnected && snap.ssid == null && hasSsidPermission()) {
-                clearRetries()
-                val delaysMs = longArrayOf(250L, 600L, 1200L, 2500L, 4000L)
-                delaysMs.forEach { delay ->
-                    val r = Runnable {
-                        val retry = snapshot(trustedSsidsProvider())
-                        Log.i(
-                            TAG,
-                            "WiFi retry(+${delay}ms) ssid=${retry.ssid} trusted=${retry.onTrustedWifi}"
-                        )
-                        trySend(retry)
-                    }
-                    retryRunnables += r
-                    mainHandler.postDelayed(r, delay)
-                }
-            } else if (snap.ssid != null) {
-                clearRetries()
-            }
-        }
-
         fun newCallback(): ConnectivityManager.NetworkCallback {
-            // API 31+: FLAG_INCLUDE_LOCATION_INFO is required to get SSID in capabilities
             return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 object : ConnectivityManager.NetworkCallback(FLAG_INCLUDE_LOCATION_INFO) {
-                    override fun onAvailable(network: Network) = emitCurrent()
-                    override fun onLost(network: Network) = emitCurrent()
+                    override fun onAvailable(network: Network) = scheduleEmit()
+                    override fun onLost(network: Network) = scheduleEmit()
                     override fun onCapabilitiesChanged(
                         network: Network,
                         networkCapabilities: NetworkCapabilities
-                    ) = emitCurrent()
-
-                    override fun onLinkPropertiesChanged(
-                        network: Network,
-                        linkProperties: LinkProperties
-                    ) = emitCurrent()
+                    ) = scheduleEmit()
                 }
             } else {
                 object : ConnectivityManager.NetworkCallback() {
-                    override fun onAvailable(network: Network) = emitCurrent()
-                    override fun onLost(network: Network) = emitCurrent()
+                    override fun onAvailable(network: Network) = scheduleEmit()
+                    override fun onLost(network: Network) = scheduleEmit()
                     override fun onCapabilitiesChanged(
                         network: Network,
                         networkCapabilities: NetworkCapabilities
-                    ) = emitCurrent()
-
-                    override fun onLinkPropertiesChanged(
-                        network: Network,
-                        linkProperties: LinkProperties
-                    ) = emitCurrent()
+                    ) = scheduleEmit()
                 }
             }
         }
 
-        // Separate callback instances — Android forbids registering the same instance twice
+        // Wi‑Fi + default network is enough; drop separate cellular callback to cut noise.
         val wifiCallback = newCallback()
-        val cellularCallback = newCallback()
         val defaultCallback = newCallback()
-
         val wifiRequest = NetworkRequest.Builder()
             .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
             .build()
-        val cellularRequest = NetworkRequest.Builder()
-            .addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR)
-            .build()
         connectivityManager.registerNetworkCallback(wifiRequest, wifiCallback)
-        connectivityManager.registerNetworkCallback(cellularRequest, cellularCallback)
         connectivityManager.registerDefaultNetworkCallback(defaultCallback)
 
-        // Wi‑Fi stack SSID updates that ConnectivityManager sometimes misses
         val wifiReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
-                emitCurrent()
+                scheduleEmit()
             }
         }
         val filter = IntentFilter().apply {
@@ -447,16 +463,19 @@ class WifiConnectivityMonitor(private val context: Context) {
             appContext.registerReceiver(wifiReceiver, filter)
         }
 
-        emitCurrent()
+        // Immediate first sample (no debounce)
+        debounceEmit.run()
 
         awaitClose {
+            mainHandler.removeCallbacks(debounceEmit)
             clearRetries()
             runCatching { connectivityManager.unregisterNetworkCallback(wifiCallback) }
-            runCatching { connectivityManager.unregisterNetworkCallback(cellularCallback) }
             runCatching { connectivityManager.unregisterNetworkCallback(defaultCallback) }
             runCatching { appContext.unregisterReceiver(wifiReceiver) }
         }
-    }.distinctUntilChanged()
+    }
+        .debounce(FLOW_DEBOUNCE_MS)
+        .distinctUntilChanged { a, b -> a.samePolicyAs(b) }
 
     fun hasSsidPermission(): Boolean {
         val fine = ContextCompat.checkSelfPermission(
@@ -475,6 +494,10 @@ class WifiConnectivityMonitor(private val context: Context) {
 
     companion object {
         private const val TAG = "WifiConnectivityMonitor"
+        /** Coalesce bursty ConnectivityManager callbacks on the main handler. */
+        private const val EMIT_DEBOUNCE_MS = 250L
+        /** Extra Flow-level debounce before policy consumers run. */
+        private const val FLOW_DEBOUNCE_MS = 150L
 
         const val TRANSPORT_WIFI = "WIFI"
         const val TRANSPORT_CELLULAR = "CELLULAR"

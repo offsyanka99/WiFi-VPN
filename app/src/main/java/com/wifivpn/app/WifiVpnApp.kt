@@ -3,13 +3,17 @@ package com.wifivpn.app
 import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.content.pm.PackageManager
-import android.os.Build
+import android.util.Log
 import com.wifivpn.app.data.ConfigRepository
 import com.wifivpn.app.log.DiagnosticLogger
 import com.wifivpn.app.permission.PermissionCheckWorker
+import com.wifivpn.app.util.AppInfo
 import com.wifivpn.app.vpn.WireGuardManager
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 
 class WifiVpnApp : Application() {
 
@@ -22,35 +26,92 @@ class WifiVpnApp : Application() {
     lateinit var diagnosticLogger: DiagnosticLogger
         private set
 
+    /** Application-scoped work (no runBlocking on main). */
+    val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    /** Cached for tile / quick checks without DataStore suspend. */
+    @Volatile
+    var cachedTrustedSsids: Set<String> = emptySet()
+        private set
+
+    @Volatile
+    var cachedCanStartMonitoring: Boolean = false
+        private set
+
+    @Volatile
+    var cachedConfigFileName: String = ""
+        private set
+
     override fun onCreate() {
         super.onCreate()
         instance = this
         configRepository = ConfigRepository(this)
         diagnosticLogger = DiagnosticLogger(this)
-        // Before anything else that might throw — crash lines always hit the log file
         installUncaughtExceptionHandler()
-        val loggingEnabled = runBlocking { configRepository.isDiagnosticLoggingEnabled() }
-        diagnosticLogger.setEnabled(loggingEnabled)
-        if (loggingEnabled) {
-            diagnosticLogger.logSessionStart(appVersionName())
-        }
-        // After logger so tunnel events can be recorded immediately
+        // Default logging off until prefs load (avoids runBlocking on main)
+        diagnosticLogger.setEnabled(false)
+        // Sync-warm config caches from encrypted store (no DataStore)
+        cachedConfigFileName = configRepository.getWireGuardConfigFileNameSync()
         wireGuardManager = WireGuardManager(this)
         createNotificationChannels()
         PermissionCheckWorker.schedule(this)
+
+        applicationScope.launch {
+            runCatching { configRepository.migrateSecureConfigIfNeeded() }
+                .onFailure { Log.e(TAG, "Secure config migration failed", it) }
+
+            refreshRuntimeCaches()
+
+            val loggingEnabled = configRepository.isDiagnosticLoggingEnabled()
+            diagnosticLogger.setEnabled(loggingEnabled)
+            if (loggingEnabled) {
+                diagnosticLogger.logSessionStart(AppInfo.versionLabel(this@WifiVpnApp))
+            }
+
+            launch {
+                configRepository.trustedWifiSsids.collectLatest { ssids ->
+                    cachedTrustedSsids = ssids
+                    recomputeCanStart()
+                }
+            }
+            launch {
+                configRepository.wireGuardConfigFileName.collectLatest { name ->
+                    cachedConfigFileName = name
+                    recomputeCanStart()
+                }
+            }
+            launch {
+                configRepository.wireGuardConfig.collectLatest {
+                    recomputeCanStart()
+                }
+            }
+            launch {
+                configRepository.diagnosticLoggingEnabled.collectLatest { enabled ->
+                    if (diagnosticLogger.isEnabled() != enabled) {
+                        diagnosticLogger.setEnabled(enabled)
+                    }
+                }
+            }
+        }
     }
 
-    /**
-     * Records uncaught exceptions to the diagnostic log (always, even if
-     * routine logging is off), then delegates to the previous handler.
-     */
+    suspend fun refreshRuntimeCaches() {
+        cachedConfigFileName = configRepository.getWireGuardConfigFileNameSync()
+        cachedTrustedSsids = configRepository.getTrustedWifiSsids()
+        recomputeCanStart()
+    }
+
+    private fun recomputeCanStart() {
+        cachedCanStartMonitoring =
+            configRepository.hasWireGuardConfigSync() && cachedTrustedSsids.isNotEmpty()
+    }
+
     private fun installUncaughtExceptionHandler() {
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             try {
                 diagnosticLogger.logUncaughtCrash(thread, throwable)
             } catch (_: Throwable) {
-                // Never throw from the crash path
             }
             if (previous != null) {
                 previous.uncaughtException(thread, throwable)
@@ -61,22 +122,8 @@ class WifiVpnApp : Application() {
         }
     }
 
-    private fun appVersionName(): String {
-        return try {
-            val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                packageManager.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(0))
-            } else {
-                @Suppress("DEPRECATION")
-                packageManager.getPackageInfo(packageName, 0)
-            }
-            info.versionName?.takeIf { it.isNotBlank() } ?: "1.0"
-        } catch (_: Exception) {
-            "1.0"
-        }
-    }
-
     private fun createNotificationChannels() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O) return
         val nm = getSystemService(NotificationManager::class.java)
 
         val monitor = NotificationChannel(
@@ -101,6 +148,7 @@ class WifiVpnApp : Application() {
     }
 
     companion object {
+        private const val TAG = "WifiVpnApp"
         const val NOTIFICATION_CHANNEL_ID = "wifi_vpn_monitor"
         const val ALERTS_CHANNEL_ID = "wifi_vpn_alerts"
         const val NOTIFICATION_ID = 1001

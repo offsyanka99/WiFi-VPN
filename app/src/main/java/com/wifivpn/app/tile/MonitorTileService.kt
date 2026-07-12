@@ -12,23 +12,25 @@ import com.wifivpn.app.MainActivity
 import com.wifivpn.app.R
 import com.wifivpn.app.WifiVpnApp
 import com.wifivpn.app.service.WifiMonitorService
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.launch
 
 /**
  * Quick Settings tile: toggle Wi‑Fi monitoring on/off.
  *
- * Label = tunnel (config file) name when loaded.
- * Subtitle = VPN on / VPN off (or setup hint).
- *
- * Starting monitoring is delegated to [MainActivity] so the location
- * foreground service can start from an eligible foreground context
- * (TileService is treated as background on Android 14+).
+ * Uses [WifiVpnApp] in-memory caches — no runBlocking on the binder path.
  */
 class MonitorTileService : TileService() {
 
     override fun onStartListening() {
         super.onStartListening()
         updateTileState()
+        val app = applicationContext as? WifiVpnApp ?: return
+        app.applicationScope.launch {
+            runCatching {
+                app.configRepository.migrateSecureConfigIfNeeded()
+                app.refreshRuntimeCaches()
+            }
+        }
     }
 
     override fun onTileAdded() {
@@ -43,12 +45,11 @@ class MonitorTileService : TileService() {
             WifiMonitorService.instance != null
 
         if (running) {
-            (applicationContext as? WifiVpnApp)?.diagnosticLogger?.i(
+            app.diagnosticLogger.i(
                 "UI",
                 "stop monitoring requested source=${WifiMonitorService.SOURCE_TILE}"
             )
             WifiMonitorService.stop(this, WifiMonitorService.SOURCE_TILE)
-            // VPN will drop as service stops; reflect immediately
             applyTileAppearance(
                 running = false,
                 canStart = true,
@@ -57,7 +58,7 @@ class MonitorTileService : TileService() {
             return
         }
 
-        val canStart = runBlocking { app.configRepository.canStartMonitoring() }
+        val canStart = app.cachedCanStartMonitoring
         val needsVpn = app.wireGuardManager.prepareVpnPermission() != null
         if (!canStart || needsVpn) {
             openApp(startMonitoring = false)
@@ -69,7 +70,6 @@ class MonitorTileService : TileService() {
             return
         }
 
-        // Must start FGS(location) from a foreground Activity — not from the tile.
         openApp(startMonitoring = true)
         Log.i(TAG, "Requested start monitoring via MainActivity (from tile)")
     }
@@ -100,21 +100,15 @@ class MonitorTileService : TileService() {
         val app = applicationContext as? WifiVpnApp
         val state = WifiMonitorService.uiState.value
         val running = state.monitoring || WifiMonitorService.instance != null
-        val canStart = app != null && runBlocking { app.configRepository.canStartMonitoring() }
+        val canStart = app?.cachedCanStartMonitoring == true
         val vpnActive = running && (state.vpnActive || app?.wireGuardManager?.isUp == true)
         applyTileAppearance(running = running, canStart = canStart, vpnActive = vpnActive)
     }
 
-    /**
-     * Label = tunnel name; subtitle = VPN status (or setup).
-     * Tile selected/active while monitoring is on.
-     */
     private fun applyTileAppearance(running: Boolean, canStart: Boolean, vpnActive: Boolean) {
         val tile = qsTile ?: return
         val app = applicationContext as? WifiVpnApp
-        val tunnelName = runBlocking {
-            app?.configRepository?.getWireGuardConfigFileName().orEmpty()
-        }.let { displayTunnelName(it) }
+        val tunnelName = displayTunnelName(app?.cachedConfigFileName.orEmpty())
 
         val appLabel = getString(R.string.tile_label)
         tile.label = tunnelName ?: appLabel
@@ -140,16 +134,8 @@ class MonitorTileService : TileService() {
             )
         }
 
-        tile.state = when {
-            running -> Tile.STATE_ACTIVE
-            else -> Tile.STATE_INACTIVE
-        }
-
+        tile.state = if (running) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
         tile.updateTile()
-        Log.d(
-            TAG,
-            "Tile updated label=${tile.label} subtitle=$vpnText running=$running vpnActive=$vpnActive"
-        )
     }
 
     companion object {
@@ -164,7 +150,6 @@ class MonitorTileService : TileService() {
             }
         }
 
-        /** File name without extension, or null if missing. */
         fun displayTunnelName(fileName: String): String? {
             val base = fileName
                 .substringAfterLast('/')

@@ -25,7 +25,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 /**
@@ -95,24 +94,50 @@ class WifiMonitorService : LifecycleService() {
             app.configRepository.setMonitoringEnabled(true)
             DiagnosticSupport.logSupportSummary(app, "monitor_start source=$source")
 
-            // Network changes + trusted SSID list changes both re-evaluate VPN
-            // collectLatest cancels in-flight VPN retries when the decision changes
-            combine(
-                wifiMonitor.wifiStatusFlow { emptySet() },
-                app.configRepository.trustedWifiSsids
-            ) { _, trustedSsids ->
-                wifiMonitor.snapshot(trustedSsids)
-            }.collectLatest { snap ->
+            // Keep trusted SSID set in the monitor (used by wifiStatusFlow snapshots)
+            launch {
+                app.configRepository.trustedWifiSsids.collect { ssids ->
+                    wifiMonitor.setTrustedSsids(ssids)
+                    // Re-evaluate immediately when the trusted list changes
+                    applyWifiDecision(wifiMonitor.snapshot(ssids))
+                }
+            }
+
+            // Network changes → debounced policy snapshots; collectLatest cancels VPN retries
+            wifiMonitor.wifiStatusFlow().collectLatest { snap ->
                 applyWifiDecision(snap)
             }
         }
     }
 
+    /** Last policy key we acted on — skip redundant tunnel toggles / log lines. */
+    private var lastPolicyKey: String? = null
+
     private suspend fun applyWifiDecision(snap: WifiConnectivityMonitor.WifiSnapshot) {
-        Log.i(
-            TAG,
-            "Decision: connected=${snap.wifiConnected} ssid=${snap.ssid} trusted=${snap.onTrustedWifi}"
-        )
+        val wantVpnOn = !snap.onTrustedWifi
+        val policyKey =
+            "${snap.wifiConnected}|${snap.ssid}|${snap.onTrustedWifi}|${snap.transports}|$wantVpnOn"
+        val tunnelMatches =
+            (wantVpnOn && app.wireGuardManager.isUp) ||
+                (!wantVpnOn && !app.wireGuardManager.isUp)
+        if (policyKey == lastPolicyKey && tunnelMatches) {
+            // Soft UI refresh only
+            _uiState.value = _uiState.value.copy(
+                wifiConnected = snap.wifiConnected,
+                onTrustedWifi = snap.onTrustedWifi,
+                currentSsid = snap.ssid,
+                vpnActive = app.wireGuardManager.isUp
+            )
+            return
+        }
+        lastPolicyKey = policyKey
+
+        if (Log.isLoggable(TAG, Log.DEBUG)) {
+            Log.d(
+                TAG,
+                "Decision: connected=${snap.wifiConnected} ssid=${snap.ssid} trusted=${snap.onTrustedWifi}"
+            )
+        }
         logNetworkAndDecision(snap)
         _uiState.value = _uiState.value.copy(
             wifiConnected = snap.wifiConnected,
@@ -322,6 +347,7 @@ class WifiMonitorService : LifecycleService() {
     private suspend fun stopMonitoringInternal() {
         monitorJob?.cancel()
         monitorJob = null
+        lastPolicyKey = null
         val wasUp = app.wireGuardManager.isUp
         val downResult = app.wireGuardManager.setTunnelDown()
         app.configRepository.setMonitoringEnabled(false)

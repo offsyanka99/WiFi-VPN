@@ -25,12 +25,15 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.wifivpn.app.configuration.BackgroundSettingsHelper
+import com.wifivpn.app.configuration.DiagnosticLogHelper
 import com.wifivpn.app.data.ConfigRepository
 import com.wifivpn.app.databinding.ActivityConfigurationBinding
 import com.wifivpn.app.databinding.ItemWifiSsidBinding
 import com.wifivpn.app.log.DiagnosticSupport
 import com.wifivpn.app.network.WifiConnectivityMonitor
 import com.wifivpn.app.tile.MonitorTileService
+import com.wifivpn.app.util.AppInfo
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
@@ -44,13 +47,11 @@ class ConfigurationActivity : AppCompatActivity() {
     private val app get() = application as WifiVpnApp
     private lateinit var wifiMonitor: WifiConnectivityMonitor
 
-    /** Avoid reacting while we sync switch UI from system state. */
-    private var syncingBatterySwitch = false
-    private var syncingUnusedSwitch = false
-    private var syncingDiagnosticLogSwitch = false
-
     private var retryAttempts: Int = ConfigRepository.DEFAULT_VPN_RETRY_ATTEMPTS
     private var retryDelaySeconds: Int = ConfigRepository.DEFAULT_VPN_RETRY_DELAY_SECONDS
+
+    private lateinit var backgroundSettings: BackgroundSettingsHelper
+    private lateinit var diagnosticLog: DiagnosticLogHelper
 
     private val openConfigLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -105,13 +106,13 @@ class ConfigurationActivity : AppCompatActivity() {
     private val batteryOptLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {
-        refreshBatteryOptimizationSwitch()
+        if (::backgroundSettings.isInitialized) backgroundSettings.refreshBattery()
     }
 
     private val unusedAppLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {
-        refreshUnusedAppSwitch()
+        if (::backgroundSettings.isInitialized) backgroundSettings.refreshUnused()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -153,19 +154,36 @@ class ConfigurationActivity : AppCompatActivity() {
         binding.btnRetryDelayPlus.setOnClickListener {
             adjustRetryDelay(1)
         }
-        binding.btnSendDiagnosticLog.setOnClickListener { sendDiagnosticLog() }
-        binding.btnClearDiagnosticLog.setOnClickListener { clearDiagnosticLog() }
-        binding.switchDiagnosticLogging.setOnCheckedChangeListener { button, isChecked ->
-            if (!button.isPressed || syncingDiagnosticLogSwitch) return@setOnCheckedChangeListener
-            onDiagnosticLoggingToggled(isChecked)
-        }
+        backgroundSettings = BackgroundSettingsHelper(
+            activity = this,
+            batterySwitch = binding.switchBatteryOptimization,
+            unusedSwitch = binding.switchManageUnused,
+            batteryLauncher = batteryOptLauncher,
+            unusedLauncher = unusedAppLauncher,
+            logConfig = ::logConfig,
+            toast = ::toast
+        )
+        diagnosticLog = DiagnosticLogHelper(
+            activity = this,
+            app = app,
+            switch = binding.switchDiagnosticLogging,
+            btnSend = binding.btnSendDiagnosticLog,
+            btnClear = binding.btnClearDiagnosticLog,
+            logConfig = ::logConfig,
+            toast = ::toast
+        )
+        diagnosticLog.bindClicks()
         binding.switchBatteryOptimization.setOnCheckedChangeListener { button, isChecked ->
-            if (!button.isPressed || syncingBatterySwitch) return@setOnCheckedChangeListener
-            onBatteryOptimizationToggled(isChecked)
+            if (!button.isPressed || backgroundSettings.syncingBattery) {
+                return@setOnCheckedChangeListener
+            }
+            backgroundSettings.onBatteryToggled(isChecked)
         }
         binding.switchManageUnused.setOnCheckedChangeListener { button, isChecked ->
-            if (!button.isPressed || syncingUnusedSwitch) return@setOnCheckedChangeListener
-            onManageUnusedToggled(isChecked)
+            if (!button.isPressed || backgroundSettings.syncingUnused) {
+                return@setOnCheckedChangeListener
+            }
+            backgroundSettings.onUnusedToggled(isChecked)
         }
         binding.switchAutoStart.setOnCheckedChangeListener { button, isChecked ->
             if (!button.isPressed) return@setOnCheckedChangeListener
@@ -203,12 +221,7 @@ class ConfigurationActivity : AppCompatActivity() {
                 }
                 launch {
                     app.configRepository.diagnosticLoggingEnabled.collectLatest { enabled ->
-                        syncingDiagnosticLogSwitch = true
-                        if (binding.switchDiagnosticLogging.isChecked != enabled) {
-                            binding.switchDiagnosticLogging.isChecked = enabled
-                        }
-                        updateDiagnosticLogActionsEnabled(enabled)
-                        syncingDiagnosticLogSwitch = false
+                        diagnosticLog.applyEnabledFromPrefs(enabled)
                     }
                 }
                 launch {
@@ -227,8 +240,7 @@ class ConfigurationActivity : AppCompatActivity() {
         }
 
         updateVpnPermissionButton()
-        refreshBatteryOptimizationSwitch()
-        refreshUnusedAppSwitch()
+        backgroundSettings.refreshAll()
         renderRetryUi()
     }
 
@@ -273,8 +285,7 @@ class ConfigurationActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         updateVpnPermissionButton()
-        refreshBatteryOptimizationSwitch()
-        refreshUnusedAppSwitch()
+        backgroundSettings.refreshAll()
         lifecycleScope.launch {
             renderExcludedApps(app.configRepository.getExcludedApps())
             renderTrustedWifi(app.configRepository.getTrustedWifiSsids())
@@ -322,142 +333,6 @@ class ConfigurationActivity : AppCompatActivity() {
         binding.btnVpnPermission.isEnabled = needs
         binding.btnVpnPermission.alpha = if (needs) 1f else 0.5f
         Log.d(TAG, "VPN permission button needsGrant=$needs")
-    }
-
-    private fun isIgnoringBatteryOptimizations(): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return true
-        val pm = getSystemService(PowerManager::class.java) ?: return false
-        return pm.isIgnoringBatteryOptimizations(packageName)
-    }
-
-    private fun refreshBatteryOptimizationSwitch() {
-        val exempt = isIgnoringBatteryOptimizations()
-        syncingBatterySwitch = true
-        binding.switchBatteryOptimization.isChecked = exempt
-        syncingBatterySwitch = false
-    }
-
-    private fun onBatteryOptimizationToggled(wantExempt: Boolean) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
-            refreshBatteryOptimizationSwitch()
-            return
-        }
-        val currentlyExempt = isIgnoringBatteryOptimizations()
-        if (wantExempt == currentlyExempt) return
-
-        if (wantExempt) {
-            logConfig("battery_optimization user requested exemption")
-            try {
-                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                    data = Uri.parse("package:$packageName")
-                }
-                batteryOptLauncher.launch(intent)
-                toast(getString(R.string.msg_battery_opt_on))
-            } catch (e: Exception) {
-                Log.e(TAG, "Battery optimization request failed", e)
-                // Fallback: full list of battery-optimized apps
-                try {
-                    batteryOptLauncher.launch(
-                        Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-                    )
-                } catch (e2: Exception) {
-                    Log.e(TAG, "Battery settings open failed", e2)
-                    toast(getString(R.string.msg_battery_opt_open_failed))
-                }
-                refreshBatteryOptimizationSwitch()
-            }
-        } else {
-            // Cannot revoke exemption programmatically; open system settings.
-            logConfig("battery_optimization user opened system settings to re-enable")
-            try {
-                batteryOptLauncher.launch(
-                    Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-                )
-                toast(getString(R.string.msg_battery_opt_off))
-            } catch (e: Exception) {
-                Log.e(TAG, "Battery settings open failed", e)
-                toast(getString(R.string.msg_battery_opt_open_failed))
-            }
-            refreshBatteryOptimizationSwitch()
-        }
-    }
-
-    /**
-     * Whether the system “Manage app if unused” style restrictions are **enabled**
-     * for this package (same polarity as the system toggle).
-     *
-     * AndroidX / platform: restrictions enabled ⇔ NOT auto-revoke-whitelisted.
-     * Whitelisted = user/system exempted the app (manage-if-unused effectively off).
-     */
-    private fun isManageUnusedEnabledInSystem(): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return false
-        return try {
-            // true → exempt from auto-revoke / unused restrictions
-            val exempt = packageManager.isAutoRevokeWhitelisted
-            !exempt
-        } catch (e: Exception) {
-            Log.w(TAG, "isAutoRevokeWhitelisted failed", e)
-            // Unknown — do not claim a false "off"
-            true
-        }
-    }
-
-    private fun refreshUnusedAppSwitch() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-            binding.switchManageUnused.isEnabled = false
-            syncingUnusedSwitch = true
-            binding.switchManageUnused.isChecked = false
-            syncingUnusedSwitch = false
-            return
-        }
-        val manageOn = isManageUnusedEnabledInSystem()
-        syncingUnusedSwitch = true
-        binding.switchManageUnused.isChecked = manageOn
-        syncingUnusedSwitch = false
-        Log.d(TAG, "Manage app if unused (system)=$manageOn")
-    }
-
-    private fun onManageUnusedToggled(wantManageOn: Boolean) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-            toast(getString(R.string.msg_manage_unused_unavailable))
-            refreshUnusedAppSwitch()
-            return
-        }
-        // Cannot change this from a normal app — always open the system screen.
-        // Revert the switch to the real system value until the user returns.
-        logConfig("manage_unused user opened system settings want_manage_on=$wantManageOn")
-        refreshUnusedAppSwitch()
-        openUnusedAppRestrictionsSettings()
-        toast(getString(R.string.msg_manage_unused_open))
-    }
-
-    private fun openUnusedAppRestrictionsSettings() {
-        val candidates = buildList {
-            // Permission controller “unused app” / auto-revoke screen
-            add(
-                Intent("android.intent.action.AUTO_REVOKE_PERMISSIONS").apply {
-                    data = Uri.fromParts("package", packageName, null)
-                }
-            )
-            // App info (contains “Manage app if unused” on Pixel / AOSP)
-            add(
-                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                    data = Uri.fromParts("package", packageName, null)
-                }
-            )
-        }
-        for (intent in candidates) {
-            try {
-                if (intent.resolveActivity(packageManager) != null) {
-                    unusedAppLauncher.launch(intent)
-                    return
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Unused-app intent failed: ${intent.action}", e)
-            }
-        }
-        toast(getString(R.string.msg_manage_unused_open_failed))
-        refreshUnusedAppSwitch()
     }
 
     private fun importConfigFromUri(uri: Uri) {
@@ -647,151 +522,8 @@ class ConfigurationActivity : AppCompatActivity() {
         }
     }
 
-    private fun onDiagnosticLoggingToggled(isChecked: Boolean) {
-        if (isChecked) {
-            lifecycleScope.launch {
-                app.configRepository.setDiagnosticLoggingEnabled(true)
-                app.diagnosticLogger.setEnabled(true)
-                app.diagnosticLogger.logLoggingEnabled()
-                updateDiagnosticLogActionsEnabled(true)
-                toast(getString(R.string.msg_diagnostic_log_enabled))
-            }
-            return
-        }
-
-        // Turning off: if a log file exists, ask delete vs keep; Cancel restores the switch.
-        if (app.diagnosticLogger.logFileExists()) {
-            if (isFinishing || isDestroyed) return
-            MaterialAlertDialogBuilder(this)
-                .setTitle(R.string.dialog_disable_diagnostic_log_title)
-                .setMessage(R.string.dialog_disable_diagnostic_log_message)
-                .setPositiveButton(R.string.btn_delete_log) { _, _ ->
-                    disableDiagnosticLogging(deleteLog = true)
-                }
-                .setNegativeButton(R.string.btn_keep_log) { _, _ ->
-                    disableDiagnosticLogging(deleteLog = false)
-                }
-                .setNeutralButton(R.string.btn_cancel) { _, _ ->
-                    restoreDiagnosticLoggingSwitch(true)
-                }
-                .setOnCancelListener {
-                    restoreDiagnosticLoggingSwitch(true)
-                }
-                .show()
-        } else {
-            disableDiagnosticLogging(deleteLog = false)
-        }
-    }
-
-    private fun disableDiagnosticLogging(deleteLog: Boolean) {
-        lifecycleScope.launch {
-            // Log while still enabled, then disable (and optionally delete the file).
-            logConfig(
-                "diagnostic_logging disabled delete_log=$deleteLog"
-            )
-            app.diagnosticLogger.setEnabled(false)
-            if (deleteLog) {
-                app.diagnosticLogger.deleteLogFile()
-            }
-            app.configRepository.setDiagnosticLoggingEnabled(false)
-            updateDiagnosticLogActionsEnabled(false)
-            toast(
-                getString(
-                    if (deleteLog) {
-                        R.string.msg_diagnostic_log_disabled_deleted
-                    } else {
-                        R.string.msg_diagnostic_log_disabled_kept
-                    }
-                )
-            )
-        }
-    }
-
     private fun logConfig(message: String) {
         app.diagnosticLogger.i(CAT_CONFIG, message)
-    }
-
-    private fun restoreDiagnosticLoggingSwitch(enabled: Boolean) {
-        syncingDiagnosticLogSwitch = true
-        binding.switchDiagnosticLogging.isChecked = enabled
-        syncingDiagnosticLogSwitch = false
-    }
-
-    private fun updateDiagnosticLogActionsEnabled(loggingEnabled: Boolean) {
-        // Allow send/clear if logging is on, or if a file already exists (e.g. crash-only).
-        val canUseLog = loggingEnabled || app.diagnosticLogger.logFileExists()
-        binding.btnSendDiagnosticLog.isEnabled = canUseLog
-        binding.btnClearDiagnosticLog.isEnabled = canUseLog
-    }
-
-    private fun sendDiagnosticLog() {
-        val logger = app.diagnosticLogger
-        if (!logger.isEnabled() && !logger.hasContent()) return
-        if (!logger.hasContent()) {
-            toast(getString(R.string.msg_diagnostic_log_empty))
-            return
-        }
-        lifecycleScope.launch {
-            logger.i("UI", "user requested send diagnostic log via email")
-            // Temporarily enable summary write if only a crash file exists while toggle is off
-            val wasEnabled = logger.isEnabled()
-            if (!wasEnabled) {
-                logger.setEnabled(true)
-            }
-            try {
-                DiagnosticSupport.logSupportSummary(app, "send_log")
-                logger.i(
-                    "SUPPORT",
-                    "perms at send: ${DiagnosticSupport.permissionSnapshot(this@ConfigurationActivity)}"
-                )
-            } finally {
-                if (!wasEnabled) {
-                    logger.setEnabled(false)
-                }
-            }
-            val version = appVersionName()
-            val device = "${Build.MANUFACTURER} ${Build.MODEL}"
-            val androidLabel = "${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})"
-            val body = getString(R.string.diagnostic_log_email_body, version, device, androidLabel)
-            val intent = logger.createEmailShareIntent(
-                subject = getString(R.string.diagnostic_log_email_subject),
-                body = body,
-                toAddress = getString(R.string.about_email),
-                chooserTitle = getString(R.string.diagnostic_log_share_title)
-            )
-            if (intent == null) {
-                toast(getString(R.string.msg_diagnostic_log_share_failed))
-                return@launch
-            }
-            try {
-                startActivity(intent)
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to launch log share", e)
-                app.diagnosticLogger.logException("UI", "diagnostic log share failed", e)
-                toast(getString(R.string.msg_diagnostic_log_share_failed))
-            }
-        }
-    }
-
-    private fun clearDiagnosticLog() {
-        if (!app.diagnosticLogger.isEnabled() && !app.diagnosticLogger.hasContent()) return
-        app.diagnosticLogger.clear()
-        updateDiagnosticLogActionsEnabled(app.diagnosticLogger.isEnabled())
-        toast(getString(R.string.msg_diagnostic_log_cleared))
-    }
-
-    private fun appVersionName(): String {
-        return try {
-            val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                packageManager.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(0))
-            } else {
-                @Suppress("DEPRECATION")
-                packageManager.getPackageInfo(packageName, 0)
-            }
-            info.versionName?.takeIf { it.isNotBlank() } ?: "1.0"
-        } catch (_: Exception) {
-            "1.0"
-        }
     }
 
     private fun toast(msg: String) {

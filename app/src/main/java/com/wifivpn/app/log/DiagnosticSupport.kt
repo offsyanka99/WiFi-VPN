@@ -10,6 +10,7 @@ import androidx.core.content.ContextCompat
 import com.wifivpn.app.WifiVpnApp
 import com.wifivpn.app.network.WifiConnectivityMonitor
 import com.wifivpn.app.service.WifiMonitorService
+import com.wifivpn.app.util.AppInfo
 import com.wireguard.config.Config
 import java.io.BufferedReader
 import java.io.StringReader
@@ -106,7 +107,7 @@ object DiagnosticSupport {
         val excluded = repo.getExcludedApps()
         val raw = repo.getWireGuardConfig()
         val snap = WifiConnectivityMonitor(app).snapshot(trusted)
-        val version = appVersionLabel(app)
+        val version = AppInfo.versionLabel(app)
         val line = buildString {
             append("support summary ($reason): ")
             append("app=$version ")
@@ -126,27 +127,5 @@ object DiagnosticSupport {
             append("config ${configFingerprint(raw)}")
         }
         app.diagnosticLogger.i("SUPPORT", line)
-    }
-
-    private fun appVersionLabel(context: Context): String {
-        return try {
-            val pm = context.packageManager
-            val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                pm.getPackageInfo(context.packageName, PackageManager.PackageInfoFlags.of(0))
-            } else {
-                @Suppress("DEPRECATION")
-                pm.getPackageInfo(context.packageName, 0)
-            }
-            val name = info.versionName?.takeIf { it.isNotBlank() } ?: "?"
-            val code = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                info.longVersionCode
-            } else {
-                @Suppress("DEPRECATION")
-                info.versionCode.toLong()
-            }
-            "$name/$code"
-        } catch (_: Exception) {
-            "?"
-        }
     }
 }

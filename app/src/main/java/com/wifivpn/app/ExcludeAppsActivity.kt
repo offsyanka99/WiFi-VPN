@@ -2,6 +2,7 @@ package com.wifivpn.app
 
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.graphics.drawable.Drawable
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
@@ -10,16 +11,21 @@ import android.view.ViewGroup
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.wifivpn.app.databinding.ActivityExcludeAppsBinding
 import com.wifivpn.app.databinding.ItemAppRowBinding
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
  * Multi-select list of installed apps to exclude from the VPN tunnel.
+ * Icons load lazily on bind; list updates use [DiffUtil].
  */
 class ExcludeAppsActivity : AppCompatActivity() {
 
@@ -38,13 +44,17 @@ class ExcludeAppsActivity : AppCompatActivity() {
         binding.toolbar.setNavigationOnClickListener { finish() }
 
         adapter = AppAdapter(
+            scope = lifecycleScope,
             selected = selected,
+            packageManager = packageManager,
             onToggle = { pkg, checked ->
                 if (checked) selected.add(pkg) else selected.remove(pkg)
             }
         )
         binding.appsList.layoutManager = LinearLayoutManager(this)
         binding.appsList.adapter = adapter
+        binding.appsList.setHasFixedSize(true)
+        binding.appsList.setItemViewCacheSize(20)
 
         binding.searchInput.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
@@ -71,13 +81,11 @@ class ExcludeAppsActivity : AppCompatActivity() {
         return apps
             .asSequence()
             .filter { it.packageName != self }
-            // Prefer user-facing apps; still include system apps that can matter (Auto, etc.)
             .map { info ->
                 AppRow(
                     packageName = info.packageName,
                     label = pm.getApplicationLabel(info).toString(),
-                    isSystem = (info.flags and ApplicationInfo.FLAG_SYSTEM) != 0,
-                    icon = runCatching { pm.getApplicationIcon(info) }.getOrNull()
+                    isSystem = (info.flags and ApplicationInfo.FLAG_SYSTEM) != 0
                 )
             }
             .sortedWith(
@@ -96,7 +104,7 @@ class ExcludeAppsActivity : AppCompatActivity() {
                 it.label.lowercase().contains(q) || it.packageName.lowercase().contains(q)
             }
         }
-        adapter.submit(filtered)
+        adapter.submitList(filtered)
     }
 
     private fun saveAndFinish() {
@@ -121,22 +129,15 @@ class ExcludeAppsActivity : AppCompatActivity() {
     data class AppRow(
         val packageName: String,
         val label: String,
-        val isSystem: Boolean,
-        val icon: android.graphics.drawable.Drawable?
+        val isSystem: Boolean
     )
 
     private class AppAdapter(
+        private val scope: CoroutineScope,
         private val selected: MutableSet<String>,
+        private val packageManager: PackageManager,
         private val onToggle: (packageName: String, checked: Boolean) -> Unit
-    ) : RecyclerView.Adapter<AppAdapter.VH>() {
-
-        private val items = mutableListOf<AppRow>()
-
-        fun submit(list: List<AppRow>) {
-            items.clear()
-            items.addAll(list)
-            notifyDataSetChanged()
-        }
+    ) : ListAdapter<AppRow, AppAdapter.VH>(DIFF) {
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
             val binding = ItemAppRowBinding.inflate(
@@ -148,21 +149,35 @@ class ExcludeAppsActivity : AppCompatActivity() {
         }
 
         override fun onBindViewHolder(holder: VH, position: Int) {
-            holder.bind(items[position])
+            holder.bind(getItem(position))
         }
 
-        override fun getItemCount(): Int = items.size
+        override fun onViewRecycled(holder: VH) {
+            holder.cancelIconLoad()
+            super.onViewRecycled(holder)
+        }
 
         inner class VH(private val binding: ItemAppRowBinding) :
             RecyclerView.ViewHolder(binding.root) {
 
+            private var iconJob: Job? = null
+            private var boundPackage: String? = null
+
             fun bind(row: AppRow) {
+                cancelIconLoad()
+                boundPackage = row.packageName
                 binding.appLabel.text = row.label
                 binding.appPackage.text = row.packageName
-                if (row.icon != null) {
-                    binding.appIcon.setImageDrawable(row.icon)
-                } else {
-                    binding.appIcon.setImageResource(R.mipmap.ic_launcher)
+                binding.appIcon.setImageResource(R.mipmap.ic_launcher)
+
+                val pkg = row.packageName
+                iconJob = scope.launch {
+                    val icon: Drawable? = withContext(Dispatchers.IO) {
+                        runCatching { packageManager.getApplicationIcon(pkg) }.getOrNull()
+                    }
+                    if (boundPackage == pkg && icon != null) {
+                        binding.appIcon.setImageDrawable(icon)
+                    }
                 }
 
                 binding.appCheck.setOnCheckedChangeListener(null)
@@ -172,6 +187,21 @@ class ExcludeAppsActivity : AppCompatActivity() {
                     binding.appCheck.isChecked = now
                     onToggle(row.packageName, now)
                 }
+            }
+
+            fun cancelIconLoad() {
+                iconJob?.cancel()
+                iconJob = null
+            }
+        }
+
+        companion object {
+            private val DIFF = object : DiffUtil.ItemCallback<AppRow>() {
+                override fun areItemsTheSame(oldItem: AppRow, newItem: AppRow): Boolean =
+                    oldItem.packageName == newItem.packageName
+
+                override fun areContentsTheSame(oldItem: AppRow, newItem: AppRow): Boolean =
+                    oldItem == newItem
             }
         }
     }

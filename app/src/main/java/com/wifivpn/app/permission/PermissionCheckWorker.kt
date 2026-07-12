@@ -28,6 +28,19 @@ class PermissionCheckWorker(
     override suspend fun doWork(): Result {
         val issues = PermissionStatusChecker.missingIssues(applicationContext)
         Log.i(TAG, "Weekly permission check: ${issues.size} issue(s)")
+        val app = applicationContext as? WifiVpnApp
+        val logger = app?.diagnosticLogger
+        if (logger != null) {
+            if (issues.isEmpty()) {
+                logger.i(CAT, "weekly check ok — no issues")
+            } else {
+                logger.w(
+                    CAT,
+                    "weekly check issues=${issues.size}: " +
+                        issues.joinToString("; ")
+                )
+            }
+        }
         if (issues.isEmpty()) {
             return Result.success()
         }
@@ -70,6 +83,7 @@ class PermissionCheckWorker(
 
     companion object {
         private const val TAG = "PermissionCheckWorker"
+        private const val CAT = "PERMISSION"
         private const val UNIQUE_WORK = "weekly_permission_check"
 
         fun schedule(context: Context) {

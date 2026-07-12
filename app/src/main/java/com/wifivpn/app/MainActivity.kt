@@ -208,7 +208,8 @@ class MainActivity : AppCompatActivity() {
         val about = DialogAboutBinding.inflate(layoutInflater)
         about.aboutIcon.setImageResource(R.mipmap.ic_launcher)
         about.aboutName.text = getString(R.string.app_name)
-        about.aboutVersion.text = getString(R.string.about_version, appVersionName())
+        about.aboutVersion.text =
+            getString(R.string.about_version, com.wifivpn.app.util.AppInfo.versionName(this))
         about.aboutEmail.text = getString(R.string.about_email)
         about.aboutYear.text = getString(R.string.about_year)
 
@@ -216,20 +217,6 @@ class MainActivity : AppCompatActivity() {
             .setView(about.root)
             .setPositiveButton(R.string.about_close, null)
             .show()
-    }
-
-    private fun appVersionName(): String {
-        return try {
-            val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                packageManager.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(0))
-            } else {
-                @Suppress("DEPRECATION")
-                packageManager.getPackageInfo(packageName, 0)
-            }
-            info.versionName?.takeIf { it.isNotBlank() } ?: "1.0"
-        } catch (_: Exception) {
-            "1.0"
-        }
     }
 
     private fun toggleMonitoring() {

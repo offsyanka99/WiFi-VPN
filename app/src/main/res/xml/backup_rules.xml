@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- Never back up WireGuard private keys or diagnostic logs -->
+    <exclude domain="sharedpref" path="wg_secure_prefs.xml" />
+    <exclude domain="sharedpref" path="wg_secure_prefs" />
+    <exclude domain="file" path="logs/" />
+    <exclude domain="root" path="files/logs/" />
+</full-backup-content>
