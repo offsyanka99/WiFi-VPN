@@ -33,15 +33,13 @@ Built with **Kotlin + Jetpack** (Foreground Service, ConnectivityManager, DataSt
 
 ## Download
 
-Signed release APKs are published as **[GitHub Release assets](https://github.com/offsyanka99/WiFi-VPN/releases)** (not stored in git, to keep the repository small).
+Signed release APKs are published as **[GitHub Release assets](https://github.com/offsyanka99/WiFi-VPN/releases)** (not stored in git, to keep the repository small). Only the **current** release and up to **two previous** versions are kept for download.
 
 | Version | Download |
 |---------|----------|
 | **Latest** | [Releases](https://github.com/offsyanka99/WiFi-VPN/releases/latest) |
 | **1.4.5** | [v1.4.5](https://github.com/offsyanka99/WiFi-VPN/releases/tag/v1.4.5) |
 | **1.4.4** | [v1.4.4](https://github.com/offsyanka99/WiFi-VPN/releases/tag/v1.4.4) |
-| **1.4.3** | [v1.4.3](https://github.com/offsyanka99/WiFi-VPN/releases/tag/v1.4.3) |
-| **1.4.2** | [v1.4.2](https://github.com/offsyanka99/WiFi-VPN/releases/tag/v1.4.2) |
 
 Install with:
 
@@ -144,7 +142,7 @@ adb install -r wifi-vpn-1.4.5-release.apk
 | **`release/1.0`** | Stable **v1.0** release line (bugfixes only if needed) |
 | **`main`** | Ongoing development for future versions |
 
-Tags: `v1.0` / `v1.1` / `v1.1.1` / `v1.2` / `v1.2.1` / `v1.2.2` / `v1.3` / `v1.3.1` / `v1.4.0` / `v1.4.1` / `v1.4.2` / `v1.4.3` / `v1.4.4` / `v1.4.5` mark release points.
+Download tags currently published: `v1.4.4` / `v1.4.5`. Older changelog entries remain below for history.
 
 ## Features
 
