@@ -37,12 +37,11 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="4dp"
-        android:ellipsize="end"
-        android:maxLines="1"
+        android:maxLines="2"
         android:text="@string/status_wifi_disconnected"
         android:textColor="@color/status_warn"
         android:textSize="13sp"
-        tools:text="Wi‑Fi: trusted (Home)" />
+        tools:text="Wi‑Fi: other network (Cafe)" />
 
     <TextView
         android:id="@+id/widgetVpn"

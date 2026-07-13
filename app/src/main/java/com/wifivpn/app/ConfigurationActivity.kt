@@ -174,6 +174,7 @@ class ConfigurationActivity : AppCompatActivity() {
             toast = ::toast
         )
         diagnosticLog.bindClicks()
+        bindSectionInfoIcons()
         binding.switchBatteryOptimization.setOnCheckedChangeListener { button, isChecked ->
             if (!button.isPressed || backgroundSettings.syncingBattery) {
                 return@setOnCheckedChangeListener
@@ -531,6 +532,21 @@ class ConfigurationActivity : AppCompatActivity() {
 
     private fun toast(msg: String) {
         Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun bindSectionInfoIcons() {
+        binding.infoTrustedWifi.setOnClickListener {
+            showInfoDialog(R.string.label_trusted_wifi, getString(R.string.trusted_wifi_help))
+        }
+        binding.infoExcludedApps.setOnClickListener {
+            showInfoDialog(R.string.label_excluded_apps, getString(R.string.excluded_apps_help))
+        }
+        binding.infoVpnRetry.setOnClickListener {
+            showInfoDialog(R.string.label_vpn_retry, getString(R.string.vpn_retry_help))
+        }
+        binding.infoDiagnosticLog.setOnClickListener {
+            showInfoDialog(R.string.label_diagnostic_log, getString(R.string.diagnostic_log_help))
+        }
     }
 
     private fun showInfoDialog(titleRes: Int, message: String) {

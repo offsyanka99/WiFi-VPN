@@ -38,7 +38,7 @@
             android:text="@string/status_monitoring_off"
             android:textColor="@color/status_off"
             android:textSize="12sp"
-            tools:text="Mon on · Wi‑Fi trusted · VPN off" />
+            tools:text="Wi‑Fi trusted · VPN off" />
     </LinearLayout>
 
     <TextView

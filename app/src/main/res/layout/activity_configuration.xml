@@ -73,20 +73,30 @@
             </com.google.android.material.card.MaterialCardView>
 
             <!-- 2. Trusted Wi‑Fi networks -->
-            <TextView
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
-                android:text="@string/label_trusted_wifi"
-                android:textAppearance="?attr/textAppearanceTitleSmall" />
+                android:gravity="start|center_vertical"
+                android:orientation="horizontal">
 
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="@string/trusted_wifi_help"
-                android:textAppearance="?attr/textAppearanceBodySmall"
-                android:textColor="@color/status_off" />
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/label_trusted_wifi"
+                    android:textAppearance="?attr/textAppearanceTitleSmall" />
+
+                <ImageButton
+                    android:id="@+id/infoTrustedWifi"
+                    android:layout_width="28dp"
+                    android:layout_height="28dp"
+                    android:layout_marginStart="2dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="@string/cd_section_info"
+                    android:padding="4dp"
+                    android:src="@drawable/ic_info"
+                    app:tint="@color/status_off" />
+            </LinearLayout>
 
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
@@ -159,20 +169,30 @@
             </com.google.android.material.card.MaterialCardView>
 
             <!-- 3. Exclude applications from VPN -->
-            <TextView
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
-                android:text="@string/label_excluded_apps"
-                android:textAppearance="?attr/textAppearanceTitleSmall" />
+                android:gravity="start|center_vertical"
+                android:orientation="horizontal">
 
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="@string/excluded_apps_help"
-                android:textAppearance="?attr/textAppearanceBodySmall"
-                android:textColor="@color/status_off" />
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/label_excluded_apps"
+                    android:textAppearance="?attr/textAppearanceTitleSmall" />
+
+                <ImageButton
+                    android:id="@+id/infoExcludedApps"
+                    android:layout_width="28dp"
+                    android:layout_height="28dp"
+                    android:layout_marginStart="2dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="@string/cd_section_info"
+                    android:padding="4dp"
+                    android:src="@drawable/ic_info"
+                    app:tint="@color/status_off" />
+            </LinearLayout>
 
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
@@ -215,20 +235,30 @@
             </com.google.android.material.card.MaterialCardView>
 
             <!-- 4. VPN connection retries -->
-            <TextView
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
-                android:text="@string/label_vpn_retry"
-                android:textAppearance="?attr/textAppearanceTitleSmall" />
+                android:gravity="start|center_vertical"
+                android:orientation="horizontal">
 
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="@string/vpn_retry_help"
-                android:textAppearance="?attr/textAppearanceBodySmall"
-                android:textColor="@color/status_off" />
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/label_vpn_retry"
+                    android:textAppearance="?attr/textAppearanceTitleSmall" />
+
+                <ImageButton
+                    android:id="@+id/infoVpnRetry"
+                    android:layout_width="28dp"
+                    android:layout_height="28dp"
+                    android:layout_marginStart="2dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="@string/cd_section_info"
+                    android:padding="4dp"
+                    android:src="@drawable/ic_info"
+                    app:tint="@color/status_off" />
+            </LinearLayout>
 
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
@@ -451,20 +481,30 @@
             </com.google.android.material.card.MaterialCardView>
 
             <!-- 8. Diagnostic log (email for troubleshooting) -->
-            <TextView
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
-                android:text="@string/label_diagnostic_log"
-                android:textAppearance="?attr/textAppearanceTitleSmall" />
+                android:gravity="start|center_vertical"
+                android:orientation="horizontal">
 
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="@string/diagnostic_log_help"
-                android:textAppearance="?attr/textAppearanceBodySmall"
-                android:textColor="@color/status_off" />
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/label_diagnostic_log"
+                    android:textAppearance="?attr/textAppearanceTitleSmall" />
+
+                <ImageButton
+                    android:id="@+id/infoDiagnosticLog"
+                    android:layout_width="28dp"
+                    android:layout_height="28dp"
+                    android:layout_marginStart="2dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="@string/cd_section_info"
+                    android:padding="4dp"
+                    android:src="@drawable/ic_info"
+                    app:tint="@color/status_off" />
+            </LinearLayout>
 
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"

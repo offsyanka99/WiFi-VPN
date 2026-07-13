@@ -1,6 +1,6 @@
 # WiFi VPN
 
-**Version 1.4.4**
+**Version 1.4.5**
 
 Android app that monitors **trusted Wi‑Fi networks** in the background and automatically controls a **WireGuard** tunnel:
 
@@ -22,9 +22,9 @@ Built with **Kotlin + Jetpack** (Foreground Service, ConnectivityManager, DataSt
 | ![Home-screen widgets — 2×2 status and 4×1 bar](docs/screenshots/widgets-1.4.4.png) |
 
 - **Main** — status card (monitoring, Wi‑Fi, VPN) and start/stop control  
-- **Configuration** — WireGuard config, trusted networks, exclusions, retries, permissions, and diagnostic log  
+- **Configuration** — WireGuard config, trusted networks, exclusions, retries, permissions, and diagnostic log (section **(i)** help)  
 - **About** — app name, version, contact email, and year  
-- **Widgets** — 2×2 status card and 4×1 compact bar (tunnel name, monitoring / Wi‑Fi / VPN, Start/Stop)  
+- **Widgets** — 2×2 status card and 4×1 compact bar (tunnel name, Wi‑Fi / VPN, Start/Stop)  
 
 
 ## Contact
@@ -38,6 +38,7 @@ Signed release APKs are published as **[GitHub Release assets](https://github.co
 | Version | Download |
 |---------|----------|
 | **Latest** | [Releases](https://github.com/offsyanka99/WiFi-VPN/releases/latest) |
+| **1.4.5** | [v1.4.5](https://github.com/offsyanka99/WiFi-VPN/releases/tag/v1.4.5) |
 | **1.4.4** | [v1.4.4](https://github.com/offsyanka99/WiFi-VPN/releases/tag/v1.4.4) |
 | **1.4.3** | [v1.4.3](https://github.com/offsyanka99/WiFi-VPN/releases/tag/v1.4.3) |
 | **1.4.2** | [v1.4.2](https://github.com/offsyanka99/WiFi-VPN/releases/tag/v1.4.2) |
@@ -46,10 +47,16 @@ Install with:
 
 ```bash
 # After downloading the APK from the GitHub release page:
-adb install -r wifi-vpn-1.4.4-release.apk
+adb install -r wifi-vpn-1.4.5-release.apk
 ```
 
 ## Changelog
+
+### 1.4.5
+
+- **4×1 widget**: summary no longer shows Mon on/off (Wi‑Fi · VPN only)
+- **2×2 widget**: untrusted Wi‑Fi line no longer truncates with trailing “…” (`other network…`)
+- **Configuration**: section **(i)** info icons (next to title) for trusted Wi‑Fi, excluded apps, VPN retries, and diagnostic log; help text moved into the info dialog
 
 ### 1.4.4
 
@@ -137,7 +144,7 @@ adb install -r wifi-vpn-1.4.4-release.apk
 | **`release/1.0`** | Stable **v1.0** release line (bugfixes only if needed) |
 | **`main`** | Ongoing development for future versions |
 
-Tags: `v1.0` / `v1.1` / `v1.1.1` / `v1.2` / `v1.2.1` / `v1.2.2` / `v1.3` / `v1.3.1` / `v1.4.0` / `v1.4.1` / `v1.4.2` / `v1.4.3` / `v1.4.4` mark release points.
+Tags: `v1.0` / `v1.1` / `v1.1.1` / `v1.2` / `v1.2.1` / `v1.2.2` / `v1.3` / `v1.3.1` / `v1.4.0` / `v1.4.1` / `v1.4.2` / `v1.4.3` / `v1.4.4` / `v1.4.5` mark release points.
 
 ## Features
 
@@ -183,7 +190,7 @@ source ~/.bashrc
 cd /path/to/WiFi-VPN
 ./gradlew assembleDebug
 # APK: app/build/outputs/apk/debug/wifi-vpn-<version>-debug.apk
-adb install -r app/build/outputs/apk/debug/wifi-vpn-1.4.3-debug.apk
+adb install -r app/build/outputs/apk/debug/wifi-vpn-1.4.5-debug.apk
 ```
 
 Release builds use signing from `keystore.properties` (see `app/build.gradle.kts`). Keystore files and that properties file are gitignored.
@@ -191,16 +198,16 @@ Release builds use signing from `keystore.properties` (see `app/build.gradle.kts
 ```bash
 ./gradlew assembleRelease
 # APK: app/build/outputs/apk/release/wifi-vpn-<version>-release.apk
-adb install -r app/build/outputs/apk/release/wifi-vpn-1.4.3-release.apk
+adb install -r app/build/outputs/apk/release/wifi-vpn-1.4.5-release.apk
 
 # Publish to GitHub (example) — do not commit the APK:
-gh release create v1.4.3 \
-  app/build/outputs/apk/release/wifi-vpn-1.4.3-release.apk \
-  --title "1.4.3" \
+gh release create v1.4.5 \
+  app/build/outputs/apk/release/wifi-vpn-1.4.5-release.apk \
+  --title "1.4.5" \
   --notes "See README changelog."
 ```
 
-Current release: **1.4.3** (`versionCode` 12). Build outputs under `app/build/` are gitignored. APKs are distributed via **GitHub Releases**, not the git tree.
+Current release: **1.4.5** (`versionCode` 14). Build outputs under `app/build/` are gitignored. APKs are distributed via **GitHub Releases**, not the git tree.
 
 ## Setup
 

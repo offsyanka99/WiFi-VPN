@@ -123,11 +123,6 @@ object StatusWidgets {
             views.setTextViewText(R.id.widgetVpn, vpnText)
             views.setTextColor(R.id.widgetVpn, vpnColor)
         } else {
-            val monShort = if (monitoring) {
-                context.getString(R.string.widget_summary_mon_on)
-            } else {
-                context.getString(R.string.widget_summary_mon_off)
-            }
             val wifiShort = formatWifiShort(context, state)
             val vpnShort = if (vpnActive) {
                 context.getString(R.string.widget_summary_vpn_on)
@@ -136,7 +131,6 @@ object StatusWidgets {
             }
             val summary = context.getString(
                 R.string.widget_summary_line,
-                monShort,
                 wifiShort,
                 vpnShort
             )
