@@ -17,9 +17,15 @@ Built with **Kotlin + Jetpack** (Foreground Service, ConnectivityManager, DataSt
 |:----:|:-------------:|:-----:|
 | ![Main screen — monitoring on](docs/screenshots/main-monitoring.png) | ![Configuration](docs/screenshots/configuration.png) | ![About dialog](docs/screenshots/about-1.4.0.png) |
 
+| Home-screen widgets (2×2 + 4×1) |
+|:------------------------------:|
+| ![Home-screen widgets — 2×2 status and 4×1 bar](docs/screenshots/widgets-1.4.4.png) |
+
 - **Main** — status card (monitoring, Wi‑Fi, VPN) and start/stop control  
 - **Configuration** — WireGuard config, trusted networks, exclusions, retries, permissions, and diagnostic log  
 - **About** — app name, version, contact email, and year  
+- **Widgets** — 2×2 status card and 4×1 compact bar (tunnel name, monitoring / Wi‑Fi / VPN, Start/Stop)  
+
 
 ## Contact
 
