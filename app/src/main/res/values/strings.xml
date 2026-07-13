@@ -135,6 +135,22 @@
     <string name="diagnostic_log_email_subject">WiFi VPN diagnostic log</string>
     <string name="diagnostic_log_email_body">Attached is the WiFi VPN diagnostic log for troubleshooting.\n\nApp version: %1$s\nDevice: %2$s\nAndroid: %3$s\n</string>
     <string name="diagnostic_log_share_title">Send diagnostic log</string>
+
+    <!-- Home-screen widgets -->
+    <string name="widget_2x2_label">WiFi VPN status</string>
+    <string name="widget_2x2_description">Monitoring, Wi‑Fi, and VPN status (2×2)</string>
+    <string name="widget_4x1_label">WiFi VPN bar</string>
+    <string name="widget_4x1_description">Compact monitoring and VPN status (4×1)</string>
+    <string name="widget_btn_start">Start</string>
+    <string name="widget_btn_stop">Stop</string>
+    <string name="widget_summary_line">%1$s · %2$s · %3$s</string>
+    <string name="widget_summary_mon_on">Mon on</string>
+    <string name="widget_summary_mon_off">Mon off</string>
+    <string name="widget_summary_wifi_trusted">Wi‑Fi trusted</string>
+    <string name="widget_summary_wifi_other">Wi‑Fi other</string>
+    <string name="widget_summary_wifi_off">No Wi‑Fi</string>
+    <string name="widget_summary_vpn_on">VPN on</string>
+    <string name="widget_summary_vpn_off">VPN off</string>
 </resources>
 
 

@@ -18,6 +18,7 @@ import com.wifivpn.app.log.DiagnosticSupport
 import com.wifivpn.app.network.WifiConnectivityMonitor
 import com.wifivpn.app.tile.MonitorTileService
 import com.wifivpn.app.vpn.WireGuardManager
+import com.wifivpn.app.widget.StatusWidgets
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -79,6 +80,8 @@ class WifiMonitorService : LifecycleService() {
                 CAT_MONITOR,
                 "monitoring start ignored (already active) source=$source"
             )
+            // Still refresh tile/widgets (e.g. user tapped Start while already on).
+            notifyUiSurfaces()
             return
         }
 
@@ -86,7 +89,7 @@ class WifiMonitorService : LifecycleService() {
             monitoring = true,
             message = getString(R.string.notification_monitoring)
         )
-        MonitorTileService.requestUpdate(this)
+        notifyUiSurfaces()
         app.diagnosticLogger.i(
             CAT_MONITOR,
             "monitoring started source=$source " +
@@ -131,12 +134,15 @@ class WifiMonitorService : LifecycleService() {
                 (!wantVpnOn && !app.wireGuardManager.isUp)
         if (policyKey == lastPolicyKey && tunnelMatches) {
             // Soft UI refresh only
-            _uiState.value = _uiState.value.copy(
+            val prev = _uiState.value
+            val next = prev.copy(
                 wifiConnected = snap.wifiConnected,
                 onTrustedWifi = snap.onTrustedWifi,
                 currentSsid = snap.ssid,
                 vpnActive = app.wireGuardManager.isUp
             )
+            _uiState.value = next
+            if (prev != next) notifyUiSurfaces()
             return
         }
         lastPolicyKey = policyKey
@@ -187,7 +193,7 @@ class WifiMonitorService : LifecycleService() {
             }
             _uiState.value = _uiState.value.copy(vpnActive = false, message = msg)
             updateNotification(msg)
-            MonitorTileService.requestUpdate(this)
+            notifyUiSurfaces()
         } else {
             // After update/boot, SSID often lags while still on trusted Wi‑Fi.
             // Brief wait before turning VPN on when Wi‑Fi is up but name is unknown.
@@ -248,6 +254,7 @@ class WifiMonitorService : LifecycleService() {
             val msg = getString(R.string.msg_config_empty)
             _uiState.value = _uiState.value.copy(vpnActive = false, message = msg)
             updateNotification(msg)
+            notifyUiSurfaces()
             app.diagnosticLogger.w(CAT_VPN, "VPN on skipped — WireGuard config empty")
             return
         }
@@ -257,7 +264,7 @@ class WifiMonitorService : LifecycleService() {
             val msg = successMessage(snap)
             _uiState.value = _uiState.value.copy(vpnActive = true, message = msg)
             updateNotification(msg)
-            MonitorTileService.requestUpdate(this)
+            notifyUiSurfaces()
             app.diagnosticLogger.i(
                 CAT_VPN,
                 "VPN already on — no reconnect " +
@@ -299,7 +306,7 @@ class WifiMonitorService : LifecycleService() {
                 val msg = successMessage(snap)
                 _uiState.value = _uiState.value.copy(vpnActive = true, message = msg)
                 updateNotification(msg)
-                MonitorTileService.requestUpdate(this)
+                notifyUiSurfaces()
                 Log.i(TAG, "VPN up on attempt $attempt")
                 app.diagnosticLogger.i(
                     CAT_VPN,
@@ -360,7 +367,7 @@ class WifiMonitorService : LifecycleService() {
         )
         _uiState.value = _uiState.value.copy(vpnActive = false, message = finalMsg)
         updateNotification(finalMsg)
-        MonitorTileService.requestUpdate(this)
+        notifyUiSurfaces()
         Log.e(TAG, finalMsg)
         app.diagnosticLogger.logException(
             CAT_VPN,
@@ -396,7 +403,7 @@ class WifiMonitorService : LifecycleService() {
             message = stoppedMsg
         )
         updateNotification(stoppedMsg)
-        MonitorTileService.requestUpdate(this)
+        notifyUiSurfaces()
         Log.i(TAG, "Monitoring stopped")
         app.diagnosticLogger.i(
             CAT_MONITOR,
@@ -465,6 +472,13 @@ class WifiMonitorService : LifecycleService() {
         nm.notify(WifiVpnApp.NOTIFICATION_ID, buildNotification(content))
     }
 
+    /** Keep QS tile and home-screen widgets in sync with [uiState]. */
+    private fun notifyUiSurfaces() {
+        MonitorTileService.requestUpdate(this)
+        // updateAllSoon: main-thread + delayed reinforce (launcher RemoteViews can reorder)
+        StatusWidgets.updateAllSoon(this)
+    }
+
     private fun buildNotification(content: String): Notification {
         val openApp = PendingIntent.getActivity(
             this,
@@ -525,6 +539,7 @@ class WifiMonitorService : LifecycleService() {
         const val EXTRA_START_SOURCE = "com.wifivpn.app.extra.START_SOURCE"
         const val SOURCE_UI = "ui"
         const val SOURCE_TILE = "tile"
+        const val SOURCE_WIDGET = "widget"
         const val SOURCE_BOOT = "boot"
         /** Restored after app update (MY_PACKAGE_REPLACED) when monitoring was on. */
         const val SOURCE_UPDATE = "update"

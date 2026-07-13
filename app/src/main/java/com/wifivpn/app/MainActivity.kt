@@ -23,8 +23,11 @@ import com.wifivpn.app.databinding.DialogAboutBinding
 import com.wifivpn.app.network.WifiConnectivityMonitor
 import com.wifivpn.app.service.WifiMonitorService
 import com.wifivpn.app.tile.MonitorTileService
+import com.wifivpn.app.widget.StatusWidgets
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 class MainActivity : AppCompatActivity() {
 
@@ -72,6 +75,7 @@ class MainActivity : AppCompatActivity() {
                 launch {
                     WifiMonitorService.uiState.collectLatest { state ->
                         renderState(state)
+                        StatusWidgets.updateAll(this@MainActivity)
                     }
                 }
                 // Keep VPN indicator in sync if tunnel state changes outside a UI-state write
@@ -89,6 +93,7 @@ class MainActivity : AppCompatActivity() {
                                 if (up) R.color.status_ok else R.color.status_off
                             )
                         )
+                        StatusWidgets.updateAll(this@MainActivity)
                     }
                 }
             }
@@ -108,13 +113,14 @@ class MainActivity : AppCompatActivity() {
         if (!WifiMonitorService.uiState.value.monitoring) {
             refreshWifiStatusHint()
         }
-        // Keep QS tile label (tunnel name) in sync when returning to the app
+        // Keep QS tile + home widgets in sync when returning to the app
         MonitorTileService.requestUpdate(this)
+        StatusWidgets.updateAll(this)
     }
 
     /**
-     * QS tile starts monitoring via this Activity so the location FGS can
-     * start from a foreground-eligible process (Android 14+ requirement).
+     * QS tile / home widget starts monitoring via this Activity so the location
+     * FGS can start from a foreground-eligible process (Android 14+ requirement).
      */
     private fun handleStartMonitoringIntent(intent: Intent?) {
         if (intent?.getBooleanExtra(EXTRA_START_MONITORING, false) != true) return
@@ -122,7 +128,10 @@ class MainActivity : AppCompatActivity() {
         intent.removeExtra(EXTRA_START_MONITORING)
         val fromTile = intent.getBooleanExtra(EXTRA_FROM_TILE, false)
         intent.removeExtra(EXTRA_FROM_TILE)
-        startMonitoringInternal(fromTile = fromTile)
+        val source = intent.getStringExtra(EXTRA_START_SOURCE)
+            ?: if (fromTile) WifiMonitorService.SOURCE_TILE else WifiMonitorService.SOURCE_UI
+        intent.removeExtra(EXTRA_START_SOURCE)
+        startMonitoringInternal(source = source)
     }
 
     /**
@@ -245,10 +254,10 @@ class MainActivity : AppCompatActivity() {
             WifiMonitorService.stop(this, WifiMonitorService.SOURCE_UI)
             return
         }
-        startMonitoringInternal(fromTile = false)
+        startMonitoringInternal(source = WifiMonitorService.SOURCE_UI)
     }
 
-    private fun startMonitoringInternal(fromTile: Boolean) {
+    private fun startMonitoringInternal(source: String) {
         lifecycleScope.launch {
             val raw = app.configRepository.getWireGuardConfig()
             if (raw.isBlank()) {
@@ -285,16 +294,19 @@ class MainActivity : AppCompatActivity() {
             }
 
             try {
-                val source = if (fromTile) {
-                    WifiMonitorService.SOURCE_TILE
-                } else {
-                    WifiMonitorService.SOURCE_UI
-                }
                 app.diagnosticLogger.i("UI", "start monitoring requested source=$source")
                 WifiMonitorService.start(this@MainActivity, source)
+                // startForegroundService is async — wait so we don't push a stale
+                // "Start" widget/tile state that can overwrite the service update.
+                withTimeoutOrNull(5_000) {
+                    WifiMonitorService.uiState.first { it.monitoring }
+                }
                 MonitorTileService.requestUpdate(this@MainActivity)
-                if (fromTile) {
-                    // Return to previous app / home after QS start
+                StatusWidgets.updateAllSoon(this@MainActivity)
+                if (source == WifiMonitorService.SOURCE_TILE ||
+                    source == WifiMonitorService.SOURCE_WIDGET
+                ) {
+                    // Return to previous app / home after tile or widget start
                     moveTaskToBack(true)
                 }
             } catch (e: Exception) {
@@ -341,8 +353,10 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "MainActivity"
 
-        /** QS tile: start monitoring from a foreground-eligible Activity. */
+        /** QS tile / widget: start monitoring from a foreground-eligible Activity. */
         const val EXTRA_START_MONITORING = "com.wifivpn.app.extra.START_MONITORING"
         const val EXTRA_FROM_TILE = "com.wifivpn.app.extra.FROM_TILE"
+        /** Optional [WifiMonitorService] source string (e.g. tile, widget). */
+        const val EXTRA_START_SOURCE = "com.wifivpn.app.extra.START_SOURCE"
     }
 }

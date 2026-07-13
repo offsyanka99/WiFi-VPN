@@ -1,6 +1,6 @@
 # WiFi VPN
 
-**Version 1.4.3**
+**Version 1.4.4**
 
 Android app that monitors **trusted Wi‑Fi networks** in the background and automatically controls a **WireGuard** tunnel:
 
@@ -32,6 +32,7 @@ Signed release APKs are published as **[GitHub Release assets](https://github.co
 | Version | Download |
 |---------|----------|
 | **Latest** | [Releases](https://github.com/offsyanka99/WiFi-VPN/releases/latest) |
+| **1.4.4** | [v1.4.4](https://github.com/offsyanka99/WiFi-VPN/releases/tag/v1.4.4) |
 | **1.4.3** | [v1.4.3](https://github.com/offsyanka99/WiFi-VPN/releases/tag/v1.4.3) |
 | **1.4.2** | [v1.4.2](https://github.com/offsyanka99/WiFi-VPN/releases/tag/v1.4.2) |
 
@@ -39,10 +40,17 @@ Install with:
 
 ```bash
 # After downloading the APK from the GitHub release page:
-adb install -r wifi-vpn-1.4.3-release.apk
+adb install -r wifi-vpn-1.4.4-release.apk
 ```
 
 ## Changelog
+
+### 1.4.4
+
+- **Home-screen widgets**: **2×2** status card and **4×1** compact bar (monitoring, Wi‑Fi, VPN; tunnel name; Start/Stop)
+- Widget **Start** uses a translucent trampoline Activity (Android 14+ FGS) without flashing the main UI
+- Fix: widget button/state no longer stuck on Start after monitoring starts (wait for service state + reinforced widget updates)
+- Widget Stop waits for monitoring to clear before refreshing the surface
 
 ### 1.4.3
 
@@ -123,7 +131,7 @@ adb install -r wifi-vpn-1.4.3-release.apk
 | **`release/1.0`** | Stable **v1.0** release line (bugfixes only if needed) |
 | **`main`** | Ongoing development for future versions |
 
-Tags: `v1.0` / `v1.1` / `v1.1.1` / `v1.2` / `v1.2.1` / `v1.2.2` / `v1.3` / `v1.3.1` / `v1.4.0` / `v1.4.1` / `v1.4.2` / `v1.4.3` mark release points.
+Tags: `v1.0` / `v1.1` / `v1.1.1` / `v1.2` / `v1.2.1` / `v1.2.2` / `v1.3` / `v1.3.1` / `v1.4.0` / `v1.4.1` / `v1.4.2` / `v1.4.3` / `v1.4.4` mark release points.
 
 ## Features
 
@@ -139,6 +147,7 @@ Tags: `v1.0` / `v1.1` / `v1.1.1` / `v1.2` / `v1.2.1` / `v1.2.2` / `v1.3` / `v1.3
 - **Auto-start after reboot** (optional switch; requires config + at least one trusted SSID)
 - **Battery optimization** exemption request and **Manage app if unused** shortcut (system settings)
 - **Quick Settings tile** to start/stop monitoring (label = tunnel/config name when loaded)
+- **Home-screen widgets** (2×2 status and 4×1 bar) to glance monitoring / Wi‑Fi / VPN and start/stop
 - Location / nearby Wi‑Fi permission (needed to read SSIDs), and notification permission
 - **Screen off / locked** — monitor keeps a correct trusted/untrusted decision when the system redacts the SSID; VPN still turns on after leaving trusted Wi‑Fi
 

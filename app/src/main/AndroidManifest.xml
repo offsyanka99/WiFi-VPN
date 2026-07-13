@@ -60,6 +60,16 @@
             android:parentActivityName=".MainActivity"
             android:windowSoftInputMode="adjustResize" />
 
+        <!-- Invisible trampoline: widget Start → FGS (Android 14+) without flashing MainActivity -->
+        <activity
+            android:name=".widget.WidgetStartActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.WifiVpn.Translucent"
+            android:finishOnTaskLaunch="true" />
+
         <!-- Foreground service that watches WiFi and toggles VPN.
              location type: SSID reads are location-sensitive; required so monitoring still
              works with the screen off/locked (while-in-use location permission). -->
@@ -111,6 +121,32 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+
+        <!-- Home-screen widgets: status 2×2 and compact 4×1 bar -->
+        <receiver
+            android:name=".widget.StatusWidget2x2Provider"
+            android:exported="true"
+            android:label="@string/widget_2x2_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_status_2x2_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.StatusWidget4x1Provider"
+            android:exported="true"
+            android:label="@string/widget_4x1_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_status_4x1_info" />
+        </receiver>
     </application>
 </manifest>
+
 

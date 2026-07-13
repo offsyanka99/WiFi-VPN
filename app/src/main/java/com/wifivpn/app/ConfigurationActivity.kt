@@ -34,6 +34,7 @@ import com.wifivpn.app.log.DiagnosticSupport
 import com.wifivpn.app.network.WifiConnectivityMonitor
 import com.wifivpn.app.tile.MonitorTileService
 import com.wifivpn.app.util.AppInfo
+import com.wifivpn.app.widget.StatusWidgets
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
@@ -367,6 +368,7 @@ class ConfigurationActivity : AppCompatActivity() {
                         "fingerprint=${DiagnosticSupport.configFingerprint(raw)}"
                 )
                 MonitorTileService.requestUpdate(this@ConfigurationActivity)
+                StatusWidgets.updateAll(this@ConfigurationActivity)
                 toast(getString(R.string.msg_config_saved))
             } catch (e: Exception) {
                 app.diagnosticLogger.logException(
@@ -395,6 +397,7 @@ class ConfigurationActivity : AppCompatActivity() {
             app.configRepository.clearWireGuardConfig()
             logConfig("wireguard_config cleared")
             MonitorTileService.requestUpdate(this@ConfigurationActivity)
+            StatusWidgets.updateAll(this@ConfigurationActivity)
             toast(getString(R.string.msg_config_cleared))
         }
     }

@@ -17,4 +17,17 @@
         <item name="android:textColorPrimary">@color/md_theme_on_surface</item>
         <item name="android:textColorSecondary">@color/status_off</item>
     </style>
+
+    <!-- Transparent trampoline for widget Start (no full-UI flash). -->
+    <style name="Theme.WifiVpn.Translucent" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowAnimationStyle">@null</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:colorBackgroundCacheHint">@null</item>
+    </style>
 </resources>
+
