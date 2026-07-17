@@ -64,6 +64,13 @@ class WifiConnectivityMonitor(private val context: Context) {
     @Volatile
     private var cachedAssociationKey: String? = null
 
+    /**
+     * Association key for which we already logged “using cached SSID” at DEBUG.
+     * Avoids logcat spam when capabilities fire often with a redacted SSID overnight.
+     */
+    @Volatile
+    private var loggedCacheForAssociation: String? = null
+
     /** Latest trusted SSID list for snapshots inside [wifiStatusFlow]. */
     private val trustedSsidsRef = AtomicReference<Set<String>>(emptySet())
 
@@ -188,27 +195,39 @@ class WifiConnectivityMonitor(private val context: Context) {
             return null
         }
         if (!isWifiManagerAssociated()) {
-            Log.i(TAG, "SSID redacted and not associated; drop cache")
+            if (Log.isLoggable(TAG, Log.DEBUG)) {
+                Log.d(TAG, "SSID redacted and not associated; drop cache")
+            }
             clearSsidCache()
             return null
         }
         if (associationKey == null) {
             // Cannot prove we are still on the same network — fail closed (VPN may turn on)
-            Log.i(TAG, "SSID redacted and association key unavailable; not using cache")
+            if (Log.isLoggable(TAG, Log.DEBUG)) {
+                Log.d(TAG, "SSID redacted and association key unavailable; not using cache")
+            }
             return null
         }
         if (associationKey != cachedKey) {
-            Log.i(
-                TAG,
-                "Association changed ($cachedKey → $associationKey) with SSID redacted; drop cache"
-            )
+            if (Log.isLoggable(TAG, Log.DEBUG)) {
+                Log.d(
+                    TAG,
+                    "Association changed ($cachedKey → $associationKey) with SSID redacted; drop cache"
+                )
+            }
             clearSsidCache()
             return null
         }
-        Log.i(
-            TAG,
-            "SSID redacted; using cached ssid=$cached for association=$associationKey"
-        )
+        // Once per association — capabilities (RSSI etc.) can fire often while screen is off
+        if (loggedCacheForAssociation != associationKey) {
+            loggedCacheForAssociation = associationKey
+            if (Log.isLoggable(TAG, Log.DEBUG)) {
+                Log.d(
+                    TAG,
+                    "SSID redacted; using cached ssid=$cached for association=$associationKey"
+                )
+            }
+        }
         return cached
     }
 
@@ -296,6 +315,36 @@ class WifiConnectivityMonitor(private val context: Context) {
     private fun clearSsidCache() {
         cachedSsid = null
         cachedAssociationKey = null
+        loggedCacheForAssociation = null
+    }
+
+    /**
+     * Signature of [NetworkCapabilities] fields that matter for Wi‑Fi / VPN policy.
+     * Ignores pure signal-strength (RSSI) churn so overnight `onCapabilitiesChanged`
+     * does not force full SSID snapshots.
+     */
+    private fun relevantCapsSignature(caps: NetworkCapabilities): String {
+        val transports = buildString {
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) append('W')
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) append('C')
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) append('V')
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) append('E')
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_BLUETOOTH)) append('B')
+        }
+        val internet =
+            if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) '1' else '0'
+        val validated =
+            if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) '1' else '0'
+        var ssidPart = "-"
+        var assocPart = "-"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val info = caps.transportInfo as? WifiInfo
+            if (info != null) {
+                ssidPart = normalizeSsid(info.ssid) ?: "?"
+                assocPart = associationKeyFromWifiInfo(info) ?: "-"
+            }
+        }
+        return "$transports|$internet|$validated|$ssidPart|$assocPart"
     }
 
     fun snapshot(trustedSsids: Set<String>): WifiSnapshot {
@@ -394,6 +443,8 @@ class WifiConnectivityMonitor(private val context: Context) {
     @OptIn(FlowPreview::class)
     fun wifiStatusFlow(): Flow<WifiSnapshot> = callbackFlow {
         val retryRunnables = mutableListOf<Runnable>()
+        /** Last policy-relevant caps signature per network — skips RSSI-only updates. */
+        val lastCapsSig = ConcurrentHashMap<Network, String>()
         val debounceEmit = object : Runnable {
             override fun run() {
                 val snap = snapshot(trustedSsidsRef.get())
@@ -438,6 +489,20 @@ class WifiConnectivityMonitor(private val context: Context) {
             retryRunnables.clear()
         }
 
+        fun onCapsChanged(network: Network, caps: NetworkCapabilities) {
+            knownNetworks.add(network)
+            val sig = relevantCapsSignature(caps)
+            // put returns previous value; skip when nothing policy-relevant changed
+            if (lastCapsSig.put(network, sig) == sig) return
+            scheduleEmit()
+        }
+
+        fun onNetworkLost(network: Network) {
+            knownNetworks.remove(network)
+            lastCapsSig.remove(network)
+            scheduleEmit()
+        }
+
         fun newCallback(): ConnectivityManager.NetworkCallback {
             return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 object : ConnectivityManager.NetworkCallback(FLAG_INCLUDE_LOCATION_INFO) {
@@ -447,16 +512,14 @@ class WifiConnectivityMonitor(private val context: Context) {
                     }
 
                     override fun onLost(network: Network) {
-                        knownNetworks.remove(network)
-                        scheduleEmit()
+                        onNetworkLost(network)
                     }
 
                     override fun onCapabilitiesChanged(
                         network: Network,
                         networkCapabilities: NetworkCapabilities
                     ) {
-                        knownNetworks.add(network)
-                        scheduleEmit()
+                        onCapsChanged(network, networkCapabilities)
                     }
                 }
             } else {
@@ -467,16 +530,14 @@ class WifiConnectivityMonitor(private val context: Context) {
                     }
 
                     override fun onLost(network: Network) {
-                        knownNetworks.remove(network)
-                        scheduleEmit()
+                        onNetworkLost(network)
                     }
 
                     override fun onCapabilitiesChanged(
                         network: Network,
                         networkCapabilities: NetworkCapabilities
                     ) {
-                        knownNetworks.add(network)
-                        scheduleEmit()
+                        onCapsChanged(network, networkCapabilities)
                     }
                 }
             }
@@ -515,6 +576,7 @@ class WifiConnectivityMonitor(private val context: Context) {
             mainHandler.removeCallbacks(debounceEmit)
             clearRetries()
             knownNetworks.clear()
+            lastCapsSig.clear()
             runCatching { connectivityManager.unregisterNetworkCallback(wifiCallback) }
             runCatching { connectivityManager.unregisterNetworkCallback(defaultCallback) }
             runCatching { appContext.unregisterReceiver(wifiReceiver) }

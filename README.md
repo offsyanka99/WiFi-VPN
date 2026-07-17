@@ -1,6 +1,6 @@
 # WiFi VPN
 
-**Version 1.4.5**
+**Version 1.4.6**
 
 Android app that monitors **trusted Wi‑Fi networks** in the background and automatically controls a **WireGuard** tunnel:
 
@@ -38,6 +38,7 @@ Signed release APKs are published as **[GitHub Release assets](https://github.co
 | Version | Download |
 |---------|----------|
 | **Latest** | [Releases](https://github.com/offsyanka99/WiFi-VPN/releases/latest) |
+| **1.4.6** | [v1.4.6](https://github.com/offsyanka99/WiFi-VPN/releases/tag/v1.4.6) |
 | **1.4.5** | [v1.4.5](https://github.com/offsyanka99/WiFi-VPN/releases/tag/v1.4.5) |
 | **1.4.4** | [v1.4.4](https://github.com/offsyanka99/WiFi-VPN/releases/tag/v1.4.4) |
 
@@ -45,10 +46,16 @@ Install with:
 
 ```bash
 # After downloading the APK from the GitHub release page:
-adb install -r wifi-vpn-1.4.5-release.apk
+adb install -r wifi-vpn-1.4.6-release.apk
 ```
 
 ## Changelog
+
+### 1.4.6
+
+- **Battery**: ignore pure Wi‑Fi RSSI / non-policy `onCapabilitiesChanged` updates (fewer overnight snapshots)
+- **Battery**: quieter screen-off SSID-cache logcat (DEBUG, once per association)
+- **Battery**: diagnostic log periodic flush **7s → 45s**, still skips disk I/O when the buffer is empty
 
 ### 1.4.5
 
@@ -142,7 +149,7 @@ adb install -r wifi-vpn-1.4.5-release.apk
 | **`release/1.0`** | Stable **v1.0** release line (bugfixes only if needed) |
 | **`main`** | Ongoing development for future versions |
 
-Download tags currently published: `v1.4.4` / `v1.4.5`. Older changelog entries remain below for history.
+Download tags currently published: `v1.4.4` / `v1.4.5` / `v1.4.6`. Older changelog entries remain below for history.
 
 ## Features
 
@@ -188,7 +195,7 @@ source ~/.bashrc
 cd /path/to/WiFi-VPN
 ./gradlew assembleDebug
 # APK: app/build/outputs/apk/debug/wifi-vpn-<version>-debug.apk
-adb install -r app/build/outputs/apk/debug/wifi-vpn-1.4.5-debug.apk
+adb install -r app/build/outputs/apk/debug/wifi-vpn-1.4.6-debug.apk
 ```
 
 Release builds use signing from `keystore.properties` (see `app/build.gradle.kts`). Keystore files and that properties file are gitignored.
@@ -196,16 +203,16 @@ Release builds use signing from `keystore.properties` (see `app/build.gradle.kts
 ```bash
 ./gradlew assembleRelease
 # APK: app/build/outputs/apk/release/wifi-vpn-<version>-release.apk
-adb install -r app/build/outputs/apk/release/wifi-vpn-1.4.5-release.apk
+adb install -r app/build/outputs/apk/release/wifi-vpn-1.4.6-release.apk
 
 # Publish to GitHub (example) — do not commit the APK:
-gh release create v1.4.5 \
-  app/build/outputs/apk/release/wifi-vpn-1.4.5-release.apk \
-  --title "1.4.5" \
+gh release create v1.4.6 \
+  app/build/outputs/apk/release/wifi-vpn-1.4.6-release.apk \
+  --title "1.4.6" \
   --notes "See README changelog."
 ```
 
-Current release: **1.4.5** (`versionCode` 14). Build outputs under `app/build/` are gitignored. APKs are distributed via **GitHub Releases**, not the git tree.
+Current release: **1.4.6** (`versionCode` 15). Build outputs under `app/build/` are gitignored. APKs are distributed via **GitHub Releases**, not the git tree.
 
 ## Setup
 

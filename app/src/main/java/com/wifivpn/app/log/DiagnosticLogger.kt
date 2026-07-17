@@ -71,7 +71,10 @@ class DiagnosticLogger(context: Context) {
         }
     }
 
-    /** Flush buffered lines every [PERIODIC_FLUSH_MS] so process kills lose less history. */
+    /**
+     * Flush buffered lines every [PERIODIC_FLUSH_MS] when non-empty so process kills lose
+     * less history. Skips disk I/O when idle; interval is deliberately long for battery.
+     */
     private fun startPeriodicFlush() {
         if (periodicFlushJob?.isActive == true) return
         periodicFlushJob = writeScope.launch {
@@ -451,7 +454,11 @@ class DiagnosticLogger(context: Context) {
         private const val BUFFER_CAPACITY = 8 * 1024
         private const val BUFFER_FLUSH_CHARS = 4 * 1024
         private const val NETWORK_DEBOUNCE_MS = 1_500L
-        /** Timed flush so buffered INFO lines survive process death better. */
-        private const val PERIODIC_FLUSH_MS = 7_000L
+        /**
+         * Timed flush so buffered INFO lines survive process death better.
+         * 45s balances durability vs overnight battery (was 7s).
+         * Flush is skipped when the buffer is empty.
+         */
+        private const val PERIODIC_FLUSH_MS = 45_000L
     }
 }
