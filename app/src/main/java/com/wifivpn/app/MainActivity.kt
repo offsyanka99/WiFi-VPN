@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import android.view.View
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -23,9 +24,13 @@ import com.wifivpn.app.databinding.DialogAboutBinding
 import com.wifivpn.app.network.WifiConnectivityMonitor
 import com.wifivpn.app.service.WifiMonitorService
 import com.wifivpn.app.tile.MonitorTileService
+import com.wifivpn.app.vpn.TransferStatsFormatter
+import com.wifivpn.app.vpn.TunnelTransferStats
 import com.wifivpn.app.widget.StatusWidgets
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -93,7 +98,25 @@ class MainActivity : AppCompatActivity() {
                                 if (up) R.color.status_ok else R.color.status_off
                             )
                         )
+                        if (!up) renderTransferStats(null)
                         StatusWidgets.updateAll(this@MainActivity)
+                    }
+                }
+                // Live transfer stats while the main screen is visible.
+                launch {
+                    app.wireGuardManager.transferStats.collectLatest { stats ->
+                        renderTransferStats(stats)
+                    }
+                }
+                // Faster refresh while UI is open (service also polls for widgets).
+                launch {
+                    while (isActive) {
+                        if (app.wireGuardManager.isUp) {
+                            app.wireGuardManager.refreshTransferStats()
+                        } else {
+                            renderTransferStats(null)
+                        }
+                        delay(UI_STATS_POLL_MS)
                     }
                 }
             }
@@ -228,6 +251,28 @@ class MainActivity : AppCompatActivity() {
         } else {
             getString(R.string.btn_start_monitoring)
         }
+
+        if (!state.vpnActive && !app.wireGuardManager.isUp) {
+            renderTransferStats(null)
+        }
+    }
+
+    private fun renderTransferStats(stats: TunnelTransferStats?) {
+        val vpnUp = app.wireGuardManager.isUp ||
+            WifiMonitorService.uiState.value.vpnActive
+        if (stats == null || !vpnUp) {
+            binding.cardTransferStats.visibility = View.GONE
+            return
+        }
+        binding.cardTransferStats.visibility = View.VISIBLE
+        binding.transferDownloadRate.text = TransferStatsFormatter.formatRate(stats.rxRateBps)
+        binding.transferDownloadTotal.text = TransferStatsFormatter.formatBytes(stats.rxBytes)
+        binding.transferUploadRate.text = TransferStatsFormatter.formatRate(stats.txRateBps)
+        binding.transferUploadTotal.text = TransferStatsFormatter.formatBytes(stats.txBytes)
+        binding.transferHandshake.text = getString(
+            R.string.transfer_handshake,
+            TransferStatsFormatter.formatHandshakeAge(this, stats.latestHandshakeEpochMillis)
+        )
     }
 
     private fun showAboutDialog() {
@@ -352,6 +397,7 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "MainActivity"
+        private const val UI_STATS_POLL_MS = 1_000L
 
         /** QS tile / widget: start monitoring from a foreground-eligible Activity. */
         const val EXTRA_START_MONITORING = "com.wifivpn.app.extra.START_MONITORING"

@@ -42,6 +42,8 @@ class WifiMonitorService : LifecycleService() {
     private val app get() = application as WifiVpnApp
     private lateinit var wifiMonitor: WifiConnectivityMonitor
     private var monitorJob: Job? = null
+    /** Polls WireGuard transfer stats while the tunnel is up (feeds UI flow + widgets). */
+    private var statsPollJob: Job? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -142,6 +144,12 @@ class WifiMonitorService : LifecycleService() {
                 vpnActive = app.wireGuardManager.isUp
             )
             _uiState.value = next
+            // Keep transfer polling alive if the tunnel is already up.
+            if (app.wireGuardManager.isUp) {
+                startStatsPolling()
+            } else {
+                stopStatsPolling()
+            }
             if (prev != next) notifyUiSurfaces()
             return
         }
@@ -193,6 +201,7 @@ class WifiMonitorService : LifecycleService() {
             }
             _uiState.value = _uiState.value.copy(vpnActive = false, message = msg)
             updateNotification(msg)
+            stopStatsPolling()
             notifyUiSurfaces()
         } else {
             // After update/boot, SSID often lags while still on trusted Wi‑Fi.
@@ -254,6 +263,7 @@ class WifiMonitorService : LifecycleService() {
             val msg = getString(R.string.msg_config_empty)
             _uiState.value = _uiState.value.copy(vpnActive = false, message = msg)
             updateNotification(msg)
+            stopStatsPolling()
             notifyUiSurfaces()
             app.diagnosticLogger.w(CAT_VPN, "VPN on skipped — WireGuard config empty")
             return
@@ -264,6 +274,7 @@ class WifiMonitorService : LifecycleService() {
             val msg = successMessage(snap)
             _uiState.value = _uiState.value.copy(vpnActive = true, message = msg)
             updateNotification(msg)
+            startStatsPolling()
             notifyUiSurfaces()
             app.diagnosticLogger.i(
                 CAT_VPN,
@@ -306,6 +317,7 @@ class WifiMonitorService : LifecycleService() {
                 val msg = successMessage(snap)
                 _uiState.value = _uiState.value.copy(vpnActive = true, message = msg)
                 updateNotification(msg)
+                startStatsPolling()
                 notifyUiSurfaces()
                 Log.i(TAG, "VPN up on attempt $attempt")
                 app.diagnosticLogger.i(
@@ -367,6 +379,7 @@ class WifiMonitorService : LifecycleService() {
         )
         _uiState.value = _uiState.value.copy(vpnActive = false, message = finalMsg)
         updateNotification(finalMsg)
+        stopStatsPolling()
         notifyUiSurfaces()
         Log.e(TAG, finalMsg)
         app.diagnosticLogger.logException(
@@ -387,6 +400,7 @@ class WifiMonitorService : LifecycleService() {
     private suspend fun stopMonitoringInternal() {
         monitorJob?.cancel()
         monitorJob = null
+        stopStatsPolling()
         lastPolicyKey = null
         lastNotificationContent = null
         val wasUp = app.wireGuardManager.isUp
@@ -412,6 +426,35 @@ class WifiMonitorService : LifecycleService() {
                 "wifi=${if (snap.wifiConnected) "up" else "down"} " +
                 "ssid=${snap.ssid ?: "none"}"
         )
+    }
+
+    /**
+     * While the tunnel is up (foreground notification is showing), poll WireGuard
+     * transfer counters so [WireGuardManager.transferStats] and home widgets stay current.
+     * MainActivity also polls while visible for snappier speed updates.
+     */
+    private fun startStatsPolling() {
+        if (statsPollJob?.isActive == true) return
+        statsPollJob = lifecycleScope.launch {
+            // Immediate sample so widgets/UI are not empty for a full interval.
+            app.wireGuardManager.refreshTransferStats()
+            StatusWidgets.updateAll(this@WifiMonitorService)
+            while (true) {
+                delay(STATS_POLL_MS)
+                if (!app.wireGuardManager.isUp) break
+                app.wireGuardManager.refreshTransferStats()
+                // Push-only widgets: refresh totals / handshake while VPN stays up.
+                StatusWidgets.updateAll(this@WifiMonitorService)
+            }
+            app.wireGuardManager.clearTransferStats()
+            StatusWidgets.updateAllSoon(this@WifiMonitorService)
+        }
+    }
+
+    private fun stopStatsPolling() {
+        statsPollJob?.cancel()
+        statsPollJob = null
+        app.wireGuardManager.clearTransferStats()
     }
 
     private fun startAsForeground(content: String) {
@@ -507,6 +550,7 @@ class WifiMonitorService : LifecycleService() {
 
     override fun onDestroy() {
         monitorJob?.cancel()
+        stopStatsPolling()
         if (instance === this) instance = null
         app.diagnosticLogger.i(CAT_MONITOR, "service destroyed")
         super.onDestroy()
@@ -547,6 +591,9 @@ class WifiMonitorService : LifecycleService() {
 
         /** Wait for platform SSID after process start before forcing VPN on. */
         private const val SSID_RESOLVE_WAIT_MS = 1_500L
+
+        /** Transfer stats poll interval while the VPN notification / tunnel is active. */
+        private const val STATS_POLL_MS = 2_000L
 
         fun startIntent(context: Context, source: String = SOURCE_UNKNOWN): Intent =
             Intent(context, WifiMonitorService::class.java).putExtra(EXTRA_START_SOURCE, source)

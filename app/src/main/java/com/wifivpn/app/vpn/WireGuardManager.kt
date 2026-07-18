@@ -3,6 +3,7 @@ package com.wifivpn.app.vpn
 import android.content.Context
 import android.content.Intent
 import android.net.VpnService
+import android.os.SystemClock
 import android.util.Log
 import com.wifivpn.app.WifiVpnApp
 import com.wifivpn.app.log.DiagnosticLogger
@@ -26,7 +27,8 @@ import java.io.StringReader
  * Thin wrapper around the WireGuard tunnel library (userspace Go backend).
  *
  * Tunnel state is exposed as both a snapshot ([state] / [isUp]) and a
- * [stateFlow] for UI collectors (Main screen, tile).
+ * [stateFlow] for UI collectors (Main screen, tile). Transfer counters are
+ * available via [transferStats] after [refreshTransferStats] while the tunnel is up.
  */
 class WireGuardManager(private val context: Context) {
 
@@ -51,8 +53,87 @@ class WireGuardManager(private val context: Context) {
 
     val isUp: Boolean get() = _stateFlow.value == Tunnel.State.UP
 
+    private val _transferStats = MutableStateFlow<TunnelTransferStats?>(null)
+    val transferStats: StateFlow<TunnelTransferStats?> = _transferStats.asStateFlow()
+
+    /** Previous sample for rate calculation (elapsedRealtime). */
+    private var lastSampleElapsedMs: Long = 0L
+    private var lastRxBytes: Long = 0L
+    private var lastTxBytes: Long = 0L
+
     private fun publishState(newState: Tunnel.State) {
         _stateFlow.value = newState
+        if (newState != Tunnel.State.UP) {
+            clearTransferStats()
+        }
+    }
+
+    /**
+     * Reads WireGuard statistics for the active tunnel and publishes [transferStats].
+     * Returns null when the tunnel is down or the backend call fails.
+     * Safe to call from the service poller and the main UI; concurrent samples closer
+     * than ~200ms reuse the previous rate so dual pollers do not spike B/s values.
+     */
+    @Synchronized
+    fun refreshTransferStats(): TunnelTransferStats? {
+        if (!isUp) {
+            clearTransferStats()
+            return null
+        }
+        return try {
+            val stats = backend.getStatistics(tunnel)
+            val nowElapsed = SystemClock.elapsedRealtime()
+            val rx = stats.totalRx().coerceAtLeast(0L)
+            val tx = stats.totalTx().coerceAtLeast(0L)
+
+            var rxRate = _transferStats.value?.rxRateBps ?: 0.0
+            var txRate = _transferStats.value?.txRateBps ?: 0.0
+            if (lastSampleElapsedMs > 0L) {
+                val dtSec = (nowElapsed - lastSampleElapsedMs) / 1000.0
+                // Ignore near-simultaneous samples from UI + service pollers.
+                if (dtSec >= 0.2) {
+                    rxRate = (rx - lastRxBytes).coerceAtLeast(0L) / dtSec
+                    txRate = (tx - lastTxBytes).coerceAtLeast(0L) / dtSec
+                    lastSampleElapsedMs = nowElapsed
+                    lastRxBytes = rx
+                    lastTxBytes = tx
+                }
+            } else {
+                lastSampleElapsedMs = nowElapsed
+                lastRxBytes = rx
+                lastTxBytes = tx
+            }
+
+            var latestHandshake = 0L
+            for (key in stats.peers()) {
+                val peer = stats.peer(key) ?: continue
+                val hs = peer.latestHandshakeEpochMillis()
+                if (hs > latestHandshake) latestHandshake = hs
+            }
+
+            val snap = TunnelTransferStats(
+                rxBytes = rx,
+                txBytes = tx,
+                rxRateBps = rxRate,
+                txRateBps = txRate,
+                latestHandshakeEpochMillis = latestHandshake
+            )
+            _transferStats.value = snap
+            snap
+        } catch (e: Exception) {
+            Log.w(TAG, "getStatistics failed: ${e.message}")
+            null
+        }
+    }
+
+    @Synchronized
+    fun clearTransferStats() {
+        lastSampleElapsedMs = 0L
+        lastRxBytes = 0L
+        lastTxBytes = 0L
+        if (_transferStats.value != null) {
+            _transferStats.value = null
+        }
     }
 
     /**
@@ -157,6 +238,7 @@ class WireGuardManager(private val context: Context) {
                 }
                 backend.setState(tunnel, Tunnel.State.DOWN, null)
                 publishState(Tunnel.State.DOWN)
+                clearTransferStats()
                 Log.i(TAG, "WireGuard tunnel DOWN")
                 diagnosticLogger()?.i(CAT_TUNNEL, "DOWN success")
                 Unit

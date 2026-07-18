@@ -17,6 +17,7 @@ import com.wifivpn.app.R
 import com.wifivpn.app.WifiVpnApp
 import com.wifivpn.app.service.WifiMonitorService
 import com.wifivpn.app.tile.MonitorTileService
+import com.wifivpn.app.vpn.TransferStatsFormatter
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -160,6 +161,26 @@ object StatusWidgets {
             }
         }
         views.setTextViewText(R.id.widgetToggle, toggleLabel)
+
+        // Totals + last handshake age while VPN is up (rates stay on the main screen).
+        val transferStats = if (vpnActive) app?.wireGuardManager?.transferStats?.value else null
+        if (transferStats != null) {
+            views.setViewVisibility(R.id.widgetTransfer, View.VISIBLE)
+            views.setTextViewText(
+                R.id.widgetTransfer,
+                TransferStatsFormatter.formatWidgetTransferLine(context, transferStats)
+            )
+            views.setViewVisibility(R.id.widgetHandshake, View.VISIBLE)
+            views.setTextViewText(
+                R.id.widgetHandshake,
+                TransferStatsFormatter.formatWidgetHandshakeLine(context, transferStats)
+            )
+        } else {
+            views.setViewVisibility(R.id.widgetTransfer, View.GONE)
+            views.setTextViewText(R.id.widgetTransfer, "")
+            views.setViewVisibility(R.id.widgetHandshake, View.GONE)
+            views.setTextViewText(R.id.widgetHandshake, "")
+        }
 
         val openApp = openAppPendingIntent(context, requestCode = 10)
         views.setOnClickPendingIntent(R.id.widgetRoot, openApp)

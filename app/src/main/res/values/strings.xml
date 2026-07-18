@@ -40,6 +40,18 @@
     <string name="status_vpn_off">VPN: off</string>
     <string name="status_monitoring_on">Monitoring: on</string>
     <string name="status_monitoring_off">Monitoring: off</string>
+
+    <!-- VPN transfer stats (main screen + widgets while tunnel is up) -->
+    <string name="transfer_section_title">VPN transfer</string>
+    <string name="transfer_download">Download</string>
+    <string name="transfer_upload">Upload</string>
+    <string name="transfer_handshake">Last handshake: %1$s</string>
+    <string name="transfer_handshake_never">never</string>
+    <string name="transfer_handshake_seconds">%1$ds ago</string>
+    <string name="transfer_handshake_minutes">%1$dm ago</string>
+    <string name="transfer_handshake_hours">%1$dh ago</string>
+    <string name="transfer_handshake_days">%1$dd ago</string>
+    <string name="transfer_placeholder">—</string>
     <string name="label_wg_config">WireGuard config</string>
     <string name="config_not_loaded">No config file loaded</string>
     <string name="config_loaded">Loaded: %1$s</string>
@@ -150,6 +162,9 @@
     <string name="widget_summary_wifi_off">No Wi‑Fi</string>
     <string name="widget_summary_vpn_on">VPN on</string>
     <string name="widget_summary_vpn_off">VPN off</string>
+    <!-- ↓ received · ↑ sent (totals only; handshake is a separate widget line) -->
+    <string name="widget_transfer_line">↓%1$s · ↑%2$s</string>
+    <string name="widget_handshake_line">Handshake: %1$s</string>
 </resources>
 
 
