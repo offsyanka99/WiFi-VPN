@@ -15,12 +15,6 @@
     <string name="vpn_retrying">VPN connect failed — retry %1$d/%2$d in %3$ds…</string>
     <string name="vpn_retry_attempt">Connecting VPN (attempt %1$d of %2$d)…</string>
     <string name="vpn_connect_failed">VPN failed after %1$d attempts: %2$s</string>
-    <string name="vpn_reestablish_failed">Could not reestablish the VPN connection. Try again or stop monitoring.</string>
-    <string name="vpn_reestablish_failed_detail">Could not reestablish the VPN connection after %1$d attempts.\n\n%2$s\n\nTry again or stop monitoring.</string>
-    <string name="btn_retry">Retry</string>
-    <string name="msg_stop_monitoring_insecure">If you stop monitoring, the VPN will not reconnect and your connection will not be secure.\n\nStop monitoring?</string>
-    <string name="dialog_vpn_reconnect_title">VPN connection lost</string>
-    <string name="dialog_stop_monitoring_title">Stop monitoring?</string>
     <string name="label_vpn_retry">VPN connection retries</string>
     <string name="vpn_retry_help">How many times to try connecting the VPN when not on trusted Wi‑Fi, and how long to wait between attempts.</string>
     <string name="label_vpn_retry_attempts">Retry attempts</string>
@@ -65,6 +59,8 @@
     <string name="btn_clear_config">Clear config</string>
     <string name="btn_start_monitoring">Start monitoring</string>
     <string name="btn_stop_monitoring">Stop monitoring</string>
+    <string name="dialog_stop_monitoring_title">Stop monitoring?</string>
+    <string name="msg_stop_monitoring_insecure">You are not on a trusted Wi‑Fi network and the VPN is on.\n\nIf you stop monitoring, the VPN will disconnect and your connection will not be secure.</string>
     <string name="btn_request_vpn">Grant VPN permission</string>
     <string name="label_excluded_apps">Exclude applications from VPN</string>
     <string name="excluded_apps_help">Selected apps bypass the VPN (e.g. Android Auto). Changes apply the next time the tunnel starts.</string>

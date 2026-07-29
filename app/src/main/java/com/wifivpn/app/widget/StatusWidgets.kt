@@ -206,30 +206,14 @@ object StatusWidgets {
             WifiMonitorService.instance != null
 
         if (running) {
-            Log.i(TAG, "Stop monitoring from widget")
-            runCatching {
-                app?.diagnosticLogger?.i(
-                    "UI",
-                    "stop monitoring requested source=${WifiMonitorService.SOURCE_WIDGET}"
-                )
+            // Open MainActivity so an insecure-connection warning can be shown if needed
+            Log.i(TAG, "Stop monitoring from widget — open confirm UI")
+            val intent = Intent(appContext, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                putExtra(MainActivity.EXTRA_REQUEST_STOP_MONITORING, true)
+                putExtra(MainActivity.EXTRA_START_SOURCE, WifiMonitorService.SOURCE_WIDGET)
             }
-            WifiMonitorService.stop(appContext, WifiMonitorService.SOURCE_WIDGET)
-            // Wait for service to clear monitoring, then push widget state (async stop).
-            val scope = app?.applicationScope
-            if (scope != null) {
-                scope.launch {
-                    withTimeoutOrNull(STOP_WAIT_MS) {
-                        WifiMonitorService.uiState.first { !it.monitoring }
-                    }
-                    // instance may linger briefly after monitoring=false
-                    delay(50)
-                    updateAllSoon(appContext)
-                    MonitorTileService.requestUpdate(appContext)
-                }
-            } else {
-                updateAllSoon(appContext)
-                MonitorTileService.requestUpdate(appContext)
-            }
+            appContext.startActivity(intent)
             return
         }
 

@@ -45,16 +45,8 @@ class MonitorTileService : TileService() {
             WifiMonitorService.instance != null
 
         if (running) {
-            app.diagnosticLogger.i(
-                "UI",
-                "stop monitoring requested source=${WifiMonitorService.SOURCE_TILE}"
-            )
-            WifiMonitorService.stop(this, WifiMonitorService.SOURCE_TILE)
-            applyTileAppearance(
-                running = false,
-                canStart = true,
-                vpnActive = false
-            )
+            // Open MainActivity so insecure-connection warning can be shown if needed
+            openApp(startMonitoring = false, requestStop = true)
             return
         }
 
@@ -74,18 +66,28 @@ class MonitorTileService : TileService() {
         Log.i(TAG, "Requested start monitoring via MainActivity (from tile)")
     }
 
-    private fun openApp(startMonitoring: Boolean) {
+    private fun openApp(startMonitoring: Boolean, requestStop: Boolean = false) {
         val intent = Intent(this, MainActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             if (startMonitoring) {
                 putExtra(MainActivity.EXTRA_START_MONITORING, true)
                 putExtra(MainActivity.EXTRA_FROM_TILE, true)
+                putExtra(MainActivity.EXTRA_START_SOURCE, WifiMonitorService.SOURCE_TILE)
             }
+            if (requestStop) {
+                putExtra(MainActivity.EXTRA_REQUEST_STOP_MONITORING, true)
+                putExtra(MainActivity.EXTRA_START_SOURCE, WifiMonitorService.SOURCE_TILE)
+            }
+        }
+        val requestCode = when {
+            startMonitoring -> 1
+            requestStop -> 2
+            else -> 0
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             val pending = PendingIntent.getActivity(
                 this,
-                if (startMonitoring) 1 else 0,
+                requestCode,
                 intent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )

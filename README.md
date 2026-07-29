@@ -53,12 +53,12 @@ adb install -r wifi-vpn-1.4.8-release.apk
 
 ### 1.4.8
 
-- **Fix:** after reboot with auto-start on a **trusted** Wi‑Fi network, VPN no longer turns on while association / SSID is still settling (longer settle grace; network flow starts before VPN bring-up)
-- **VPN drop / reconnect:** if the tunnel fails or drops while policy still wants VPN on, the app retries; when attempts are exhausted, offer **Retry** (restart attempts from zero) or **Stop monitoring** (with an “connection will not be secure” confirmation)
-- Notification actions for Retry / Stop when reconnect choice is pending
-- **VPN retries defaults:** default **100** attempts (range 1–100); wait between attempts **minimum 5 s**, −/+ step **5 s**
+- **Toolchain:** AGP **9.3**, Gradle **9.6**, built-in Kotlin, `compileSdk`/`targetSdk` **36**, Gradle version catalog
+- Dependency bumps (WireGuard tunnel **1.0.20260102**, Material 1.14, Lifecycle, WorkManager, DataStore, etc.)
 - **Security:** WireGuard secrets use **Android Keystore AES-GCM** storage (one-time migration from EncryptedSharedPreferences)
-- **Toolchain:** AGP **9.3**, Gradle **9.6**, built-in Kotlin, `compileSdk`/`targetSdk` **36**, Gradle version catalog; dependency bumps (WireGuard tunnel **1.0.20260102**, Material 1.14, Lifecycle, WorkManager, DataStore, etc.)
+- After **phone reboot** (auto-start only): wait **5 s** before the first Wi‑Fi / cellular policy check; no delay when monitoring starts from UI / tile / widget
+- When stopping monitoring **off trusted Wi‑Fi** while the **VPN is on**, show a warning that the connection will not be secure
+- Configuration: **Wait between attempts** −/+ steps by **5 s**
 
 ### 1.4.7
 
@@ -174,10 +174,10 @@ Download tags currently published: `v1.4.6` / `v1.4.7` / `v1.4.8`. Older changel
 - **WireGuard** tunnel via the userspace Go backend (`GoBackend$VpnService`)
 - Load config from a `.conf` file (system file picker); **private keys in Android Keystore–backed encrypted storage** (not plain backup)
 - **Exclude apps** from the VPN (e.g. Android Auto); multi-select list with search
-- Configurable **VPN connect retries** (attempts 1–100, delay 5–120 s in 5 s steps) with progress in the notification; **Retry / Stop** when reconnect gives up
+- Configurable **VPN connect retries** (attempts + delay) with progress in the notification
 - **Diagnostic log** (opt-in; network / VPN / tunnel / config events) with email share for troubleshooting
 - **Weekly permission check** with alert notification if critical permissions are disabled
-- **Auto-start after reboot** (optional switch; requires config + at least one trusted SSID); settle grace so trusted Wi‑Fi after reboot does not force VPN on
+- **Auto-start after reboot** (optional switch; requires config + at least one trusted SSID)
 - **Battery optimization** exemption request and **Manage app if unused** shortcut (system settings)
 - **Quick Settings tile** to start/stop monitoring (label = tunnel/config name when loaded)
 - **VPN transfer stats** (main screen): live download/upload speed, session received/sent totals, last handshake age while the tunnel is up
@@ -217,8 +217,12 @@ adb install -r app/build/outputs/apk/debug/wifi-vpn-1.4.8-debug.apk
 Release builds use signing from `keystore.properties` (see `app/build.gradle.kts`). Keystore files and that properties file are gitignored.
 
 ```bash
-./gradlew assembleRelease
-# APK: app/build/outputs/apk/release/wifi-vpn-<version>-release.apk
+# Signed release APK (requires keystore.properties + keystore file)
+./gradlew :app:assembleRelease
+
+# Output:
+#   app/build/outputs/apk/release/wifi-vpn-1.4.8-release.apk
+
 adb install -r app/build/outputs/apk/release/wifi-vpn-1.4.8-release.apk
 
 # Publish to GitHub (example) — do not commit the APK:
@@ -228,7 +232,7 @@ gh release create v1.4.8 \
   --notes "See README changelog."
 ```
 
-Current release: **1.4.8** (`versionCode` 17). Build outputs under `app/build/` are gitignored. APKs are distributed via **GitHub Releases**, not the git tree.
+Current release: **1.4.8** (`versionCode` 21). Build outputs under `app/build/` are gitignored. APKs are distributed via **GitHub Releases**, not the git tree.
 
 ## Setup
 
@@ -268,15 +272,13 @@ WifiConnectivityMonitor ──► connected? SSID? trusted?
     │
     ├── On trusted Wi‑Fi  → WireGuardManager.setTunnelDown()
     └── Other / no Wi‑Fi  → WireGuardManager.setTunnelUp(config, excludedApps)
-                              (retries on failure; Retry / Stop if exhausted)
+                              (retries on failure)
 ```
 
 Policy (see `WifiMonitorService`):
 
 - Connected to a **trusted** SSID → VPN off  
 - Any other Wi‑Fi, or no Wi‑Fi → VPN on  
-- After boot / process start, wait briefly for Wi‑Fi association and SSID before forcing VPN on  
-- Unexpected tunnel drop while VPN is required → reconnect with the same retry budget  
 
 WireGuard uses the official userspace Go backend (`GoBackend$VpnService`). Preferences (trusted SSIDs, exclusions, auto-start, monitoring flag, retries) live in **DataStore**; WireGuard private keys use **Keystore-backed** encrypted prefs.
 

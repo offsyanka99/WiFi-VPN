@@ -244,12 +244,12 @@ class ConfigRepository(private val context: Context) {
     }
 
     companion object {
-        const val DEFAULT_VPN_RETRY_ATTEMPTS = 20
-        const val DEFAULT_VPN_RETRY_DELAY_SECONDS = 5
+        const val DEFAULT_VPN_RETRY_ATTEMPTS = 10
+        const val DEFAULT_VPN_RETRY_DELAY_SECONDS = 30
         const val MIN_VPN_RETRY_ATTEMPTS = 1
-        const val MAX_VPN_RETRY_ATTEMPTS = 100
+        const val MAX_VPN_RETRY_ATTEMPTS = 300
         const val MIN_VPN_RETRY_DELAY_SECONDS = 5
-        const val MAX_VPN_RETRY_DELAY_SECONDS = 300
+        const val MAX_VPN_RETRY_DELAY_SECONDS = 120
         /** Configuration − / + step for wait between attempts. */
         const val VPN_RETRY_DELAY_STEP_SECONDS = 5
 

@@ -18,7 +18,7 @@ android {
         applicationId = "com.wifivpn.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 17
+        versionCode = 21
         versionName = "1.4.8"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
