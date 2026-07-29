@@ -1,6 +1,6 @@
 # WiFi VPN
 
-**Version 1.4.7**
+**Version 1.4.8**
 
 Android app that monitors **trusted Wi‑Fi networks** in the background and automatically controls a **WireGuard** tunnel:
 
@@ -9,7 +9,7 @@ Android app that monitors **trusted Wi‑Fi networks** in the background and aut
 | Connected to a **trusted** SSID | VPN **off** |
 | Other Wi‑Fi, or no Wi‑Fi | VPN **on** |
 
-Built with **Kotlin + Jetpack** (Foreground Service, ConnectivityManager, DataStore, Material 3) and the official WireGuard tunnel library (`com.wireguard.android:tunnel`).
+Built with **Kotlin + Jetpack** (AGP 9 built-in Kotlin, Foreground Service, ConnectivityManager, DataStore, Material 3) and the official WireGuard tunnel library (`com.wireguard.android:tunnel`).
 
 ## Screenshots
 
@@ -38,18 +38,27 @@ Signed release APKs are published as **[GitHub Release assets](https://github.co
 | Version | Download |
 |---------|----------|
 | **Latest** | [Releases](https://github.com/offsyanka99/WiFi-VPN/releases/latest) |
+| **1.4.8** | [v1.4.8](https://github.com/offsyanka99/WiFi-VPN/releases/tag/v1.4.8) |
 | **1.4.7** | [v1.4.7](https://github.com/offsyanka99/WiFi-VPN/releases/tag/v1.4.7) |
 | **1.4.6** | [v1.4.6](https://github.com/offsyanka99/WiFi-VPN/releases/tag/v1.4.6) |
-| **1.4.5** | [v1.4.5](https://github.com/offsyanka99/WiFi-VPN/releases/tag/v1.4.5) |
 
 Install with:
 
 ```bash
 # After downloading the APK from the GitHub release page:
-adb install -r wifi-vpn-1.4.7-release.apk
+adb install -r wifi-vpn-1.4.8-release.apk
 ```
 
 ## Changelog
+
+### 1.4.8
+
+- **Fix:** after reboot with auto-start on a **trusted** Wi‑Fi network, VPN no longer turns on while association / SSID is still settling (longer settle grace; network flow starts before VPN bring-up)
+- **VPN drop / reconnect:** if the tunnel fails or drops while policy still wants VPN on, the app retries; when attempts are exhausted, offer **Retry** (restart attempts from zero) or **Stop monitoring** (with an “connection will not be secure” confirmation)
+- Notification actions for Retry / Stop when reconnect choice is pending
+- **VPN retries defaults:** default **100** attempts (range 1–100); wait between attempts **minimum 5 s**, −/+ step **5 s**
+- **Security:** WireGuard secrets use **Android Keystore AES-GCM** storage (one-time migration from EncryptedSharedPreferences)
+- **Toolchain:** AGP **9.3**, Gradle **9.6**, built-in Kotlin, `compileSdk`/`targetSdk` **36**, Gradle version catalog; dependency bumps (WireGuard tunnel **1.0.20260102**, Material 1.14, Lifecycle, WorkManager, DataStore, etc.)
 
 ### 1.4.7
 
@@ -155,7 +164,7 @@ adb install -r wifi-vpn-1.4.7-release.apk
 | **`release/1.0`** | Stable **v1.0** release line (bugfixes only if needed) |
 | **`main`** | Ongoing development for future versions |
 
-Download tags currently published: `v1.4.5` / `v1.4.6` / `v1.4.7`. Older changelog entries remain below for history.
+Download tags currently published: `v1.4.6` / `v1.4.7` / `v1.4.8`. Older changelog entries remain below for history.
 
 ## Features
 
@@ -163,12 +172,12 @@ Download tags currently published: `v1.4.5` / `v1.4.6` / `v1.4.7`. Older changel
 - **Trusted Wi‑Fi list** — add SSIDs manually or from the current network; VPN turns off only on those networks
 - **Foreground service** with a persistent status notification while monitoring
 - **WireGuard** tunnel via the userspace Go backend (`GoBackend$VpnService`)
-- Load config from a `.conf` file (system file picker); **private keys in encrypted storage** (not plain backup)
+- Load config from a `.conf` file (system file picker); **private keys in Android Keystore–backed encrypted storage** (not plain backup)
 - **Exclude apps** from the VPN (e.g. Android Auto); multi-select list with search
-- Configurable **VPN connect retries** (attempts + delay) with progress in the notification
+- Configurable **VPN connect retries** (attempts 1–100, delay 5–120 s in 5 s steps) with progress in the notification; **Retry / Stop** when reconnect gives up
 - **Diagnostic log** (opt-in; network / VPN / tunnel / config events) with email share for troubleshooting
 - **Weekly permission check** with alert notification if critical permissions are disabled
-- **Auto-start after reboot** (optional switch; requires config + at least one trusted SSID)
+- **Auto-start after reboot** (optional switch; requires config + at least one trusted SSID); settle grace so trusted Wi‑Fi after reboot does not force VPN on
 - **Battery optimization** exemption request and **Manage app if unused** shortcut (system settings)
 - **Quick Settings tile** to start/stop monitoring (label = tunnel/config name when loaded)
 - **VPN transfer stats** (main screen): live download/upload speed, session received/sent totals, last handshake age while the tunnel is up
@@ -180,7 +189,7 @@ Download tags currently published: `v1.4.5` / `v1.4.6` / `v1.4.7`. Older changel
 
 - Android 8.0+ (API 26)
 - A WireGuard server and a client config (`[Interface]` / `[Peer]`)
-- JDK 17, Android SDK 35, Gradle 8.9 / AGP 8.7
+- JDK 17, Android SDK **36**, Gradle **9.6** / AGP **9.3**
 
 ## Toolchain (this machine)
 
@@ -190,7 +199,7 @@ Installed under the user home (no root required):
 |-----------|----------|
 | JDK 17 (Temurin) | `~/.local/jdk/jdk-17` |
 | Android SDK | `~/Android/Sdk` |
-| Platform 35 / Build-Tools 35 / platform-tools / NDK 26.1 | under SDK |
+| Platform 36 / Build-Tools 36 / platform-tools | under SDK |
 | `local.properties` | `sdk.dir=/home/yurik/Android/Sdk` |
 
 Environment is appended to `~/.bashrc` (`JAVA_HOME`, `ANDROID_HOME`, `PATH`). Open a new terminal or `source ~/.bashrc`.
@@ -202,7 +211,7 @@ source ~/.bashrc
 cd /path/to/WiFi-VPN
 ./gradlew assembleDebug
 # APK: app/build/outputs/apk/debug/wifi-vpn-<version>-debug.apk
-adb install -r app/build/outputs/apk/debug/wifi-vpn-1.4.7-debug.apk
+adb install -r app/build/outputs/apk/debug/wifi-vpn-1.4.8-debug.apk
 ```
 
 Release builds use signing from `keystore.properties` (see `app/build.gradle.kts`). Keystore files and that properties file are gitignored.
@@ -210,16 +219,16 @@ Release builds use signing from `keystore.properties` (see `app/build.gradle.kts
 ```bash
 ./gradlew assembleRelease
 # APK: app/build/outputs/apk/release/wifi-vpn-<version>-release.apk
-adb install -r app/build/outputs/apk/release/wifi-vpn-1.4.7-release.apk
+adb install -r app/build/outputs/apk/release/wifi-vpn-1.4.8-release.apk
 
 # Publish to GitHub (example) — do not commit the APK:
-gh release create v1.4.7 \
-  app/build/outputs/apk/release/wifi-vpn-1.4.7-release.apk \
-  --title "1.4.7" \
+gh release create v1.4.8 \
+  app/build/outputs/apk/release/wifi-vpn-1.4.8-release.apk \
+  --title "1.4.8" \
   --notes "See README changelog."
 ```
 
-Current release: **1.4.7** (`versionCode` 16). Build outputs under `app/build/` are gitignored. APKs are distributed via **GitHub Releases**, not the git tree.
+Current release: **1.4.8** (`versionCode` 17). Build outputs under `app/build/` are gitignored. APKs are distributed via **GitHub Releases**, not the git tree.
 
 ## Setup
 
@@ -259,15 +268,17 @@ WifiConnectivityMonitor ──► connected? SSID? trusted?
     │
     ├── On trusted Wi‑Fi  → WireGuardManager.setTunnelDown()
     └── Other / no Wi‑Fi  → WireGuardManager.setTunnelUp(config, excludedApps)
-                              (retries on failure)
+                              (retries on failure; Retry / Stop if exhausted)
 ```
 
 Policy (see `WifiMonitorService`):
 
 - Connected to a **trusted** SSID → VPN off  
 - Any other Wi‑Fi, or no Wi‑Fi → VPN on  
+- After boot / process start, wait briefly for Wi‑Fi association and SSID before forcing VPN on  
+- Unexpected tunnel drop while VPN is required → reconnect with the same retry budget  
 
-WireGuard uses the official userspace Go backend (`GoBackend$VpnService`). Preferences (config, trusted SSIDs, exclusions, auto-start, monitoring flag) live in **DataStore**.
+WireGuard uses the official userspace Go backend (`GoBackend$VpnService`). Preferences (trusted SSIDs, exclusions, auto-start, monitoring flag, retries) live in **DataStore**; WireGuard private keys use **Keystore-backed** encrypted prefs.
 
 SSID detection notes:
 

@@ -2,7 +2,7 @@
 -keep class com.wireguard.** { *; }
 -keep class com.wireguard.android.backend.** { *; }
 
-# EncryptedSharedPreferences / Tink
+# Jetpack security-crypto (one-time migration from EncryptedSharedPreferences) + Tink
 -keep class androidx.security.crypto.** { *; }
 -keep class com.google.crypto.tink.** { *; }
 

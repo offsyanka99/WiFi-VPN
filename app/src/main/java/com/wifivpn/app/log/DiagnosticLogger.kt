@@ -170,7 +170,7 @@ class DiagnosticLogger(context: Context) {
                     "ERROR",
                     CAT_CRASH,
                     "uncaught on thread=${thread.name} " +
-                        "(id=${thread.id}): ${throwable.javaClass.name}: ${throwable.message}",
+                        "(id=${threadId(thread)}): ${throwable.javaClass.name}: ${throwable.message}",
                     skipRotate = true
                 )
                 writeStackUnlocked(CAT_CRASH, throwable, skipRotate = true)
@@ -439,6 +439,17 @@ class DiagnosticLogger(context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "Log rotation failed", e)
             runCatching { if (temp.exists()) temp.delete() }
+        }
+    }
+
+    /** [Thread.getId] is deprecated; [Thread.threadId] is preferred on newer runtimes. */
+    private fun threadId(thread: Thread): Long {
+        return try {
+            // Available on modern ART / JDK; fall back if missing on older devices.
+            thread.threadId()
+        } catch (_: Throwable) {
+            @Suppress("DEPRECATION")
+            thread.id
         }
     }
 

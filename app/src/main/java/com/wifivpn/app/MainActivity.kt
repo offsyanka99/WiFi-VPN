@@ -39,6 +39,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private val app get() = application as WifiVpnApp
     private lateinit var wifiMonitor: WifiConnectivityMonitor
+    private var reconnectChoiceDialog: androidx.appcompat.app.AlertDialog? = null
+    private var stopInsecureDialog: androidx.appcompat.app.AlertDialog? = null
+    /** Avoid re-showing the same reconnect dialog until the pending flag clears. */
+    private var reconnectDialogShownForPending: Boolean = false
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -80,6 +84,7 @@ class MainActivity : AppCompatActivity() {
                 launch {
                     WifiMonitorService.uiState.collectLatest { state ->
                         renderState(state)
+                        maybeShowReconnectChoiceDialog(state)
                         StatusWidgets.updateAll(this@MainActivity)
                     }
                 }
@@ -122,13 +127,13 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        handleStartMonitoringIntent(intent)
+        handleLaunchIntents(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handleStartMonitoringIntent(intent)
+        handleLaunchIntents(intent)
     }
 
     override fun onResume() {
@@ -139,6 +144,26 @@ class MainActivity : AppCompatActivity() {
         // Keep QS tile + home widgets in sync when returning to the app
         MonitorTileService.requestUpdate(this)
         StatusWidgets.updateAll(this)
+        maybeShowReconnectChoiceDialog(WifiMonitorService.uiState.value)
+        handleLaunchIntents(intent)
+    }
+
+    /**
+     * Handles start-monitoring (tile/widget) and VPN reconnect / stop-confirm prompts.
+     */
+    private fun handleLaunchIntents(intent: Intent?) {
+        if (intent == null) return
+        handleStartMonitoringIntent(intent)
+        if (intent.getBooleanExtra(EXTRA_PROMPT_STOP_INSECURE, false)) {
+            intent.removeExtra(EXTRA_PROMPT_STOP_INSECURE)
+            showStopMonitoringInsecureDialog()
+        }
+        if (intent.getBooleanExtra(EXTRA_PROMPT_RECONNECT_CHOICE, false)) {
+            intent.removeExtra(EXTRA_PROMPT_RECONNECT_CHOICE)
+            val detail = intent.getStringExtra(EXTRA_RECONNECT_DETAIL)
+            intent.removeExtra(EXTRA_RECONNECT_DETAIL)
+            showReconnectChoiceDialog(detail)
+        }
     }
 
     /**
@@ -155,6 +180,74 @@ class MainActivity : AppCompatActivity() {
             ?: if (fromTile) WifiMonitorService.SOURCE_TILE else WifiMonitorService.SOURCE_UI
         intent.removeExtra(EXTRA_START_SOURCE)
         startMonitoringInternal(source = source)
+    }
+
+    private fun maybeShowReconnectChoiceDialog(state: WifiMonitorService.MonitorUiState) {
+        if (!state.monitoring || !state.reconnectChoicePending) {
+            reconnectDialogShownForPending = false
+            reconnectChoiceDialog?.dismiss()
+            reconnectChoiceDialog = null
+            return
+        }
+        if (reconnectDialogShownForPending && reconnectChoiceDialog?.isShowing == true) return
+        if (stopInsecureDialog?.isShowing == true) return
+        showReconnectChoiceDialog(detail = null)
+    }
+
+    /**
+     * After all VPN connect attempts failed: Retry (restart attempts) or Stop monitoring.
+     */
+    private fun showReconnectChoiceDialog(detail: String?) {
+        if (isFinishing || isDestroyed) return
+        if (reconnectChoiceDialog?.isShowing == true) return
+        reconnectDialogShownForPending = true
+        val message = detail?.takeIf { it.isNotBlank() }
+            ?: getString(R.string.vpn_reestablish_failed)
+        reconnectChoiceDialog = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.dialog_vpn_reconnect_title)
+            .setMessage(message)
+            .setCancelable(false)
+            .setPositiveButton(R.string.btn_retry) { _, _ ->
+                app.diagnosticLogger.i("UI", "VPN reconnect Retry chosen")
+                WifiMonitorService.retryVpn(this)
+            }
+            .setNegativeButton(R.string.btn_stop_monitoring) { _, _ ->
+                showStopMonitoringInsecureDialog()
+            }
+            .setOnDismissListener {
+                reconnectChoiceDialog = null
+            }
+            .show()
+    }
+
+    /**
+     * Warn that stopping monitoring leaves the connection unsecured; OK stops monitoring.
+     */
+    private fun showStopMonitoringInsecureDialog() {
+        if (isFinishing || isDestroyed) return
+        if (stopInsecureDialog?.isShowing == true) return
+        stopInsecureDialog = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.dialog_stop_monitoring_title)
+            .setMessage(R.string.msg_stop_monitoring_insecure)
+            .setCancelable(true)
+            .setPositiveButton(R.string.btn_ok) { _, _ ->
+                app.diagnosticLogger.i(
+                    "UI",
+                    "stop monitoring confirmed after insecure warning source=ui"
+                )
+                WifiMonitorService.stop(this, WifiMonitorService.SOURCE_UI)
+            }
+            .setNegativeButton(R.string.btn_cancel) { _, _ ->
+                // Still awaiting Retry / Stop if reconnect is pending
+                if (WifiMonitorService.uiState.value.reconnectChoicePending) {
+                    reconnectDialogShownForPending = false
+                    maybeShowReconnectChoiceDialog(WifiMonitorService.uiState.value)
+                }
+            }
+            .setOnDismissListener {
+                stopInsecureDialog = null
+            }
+            .show()
     }
 
     /**
@@ -404,5 +497,10 @@ class MainActivity : AppCompatActivity() {
         const val EXTRA_FROM_TILE = "com.wifivpn.app.extra.FROM_TILE"
         /** Optional [WifiMonitorService] source string (e.g. tile, widget). */
         const val EXTRA_START_SOURCE = "com.wifivpn.app.extra.START_SOURCE"
+        /** Open Retry / Stop dialog after VPN connect attempts failed. */
+        const val EXTRA_PROMPT_RECONNECT_CHOICE = "com.wifivpn.app.extra.PROMPT_RECONNECT_CHOICE"
+        const val EXTRA_RECONNECT_DETAIL = "com.wifivpn.app.extra.RECONNECT_DETAIL"
+        /** Open “connection will not be secure” confirmation before stopping. */
+        const val EXTRA_PROMPT_STOP_INSECURE = "com.wifivpn.app.extra.PROMPT_STOP_INSECURE"
     }
 }

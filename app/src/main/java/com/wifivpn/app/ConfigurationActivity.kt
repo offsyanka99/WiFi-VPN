@@ -150,10 +150,10 @@ class ConfigurationActivity : AppCompatActivity() {
             adjustRetryAttempts(1)
         }
         binding.btnRetryDelayMinus.setOnClickListener {
-            adjustRetryDelay(-1)
+            adjustRetryDelay(-ConfigRepository.VPN_RETRY_DELAY_STEP_SECONDS)
         }
         binding.btnRetryDelayPlus.setOnClickListener {
-            adjustRetryDelay(1)
+            adjustRetryDelay(ConfigRepository.VPN_RETRY_DELAY_STEP_SECONDS)
         }
         backgroundSettings = BackgroundSettingsHelper(
             activity = this,
