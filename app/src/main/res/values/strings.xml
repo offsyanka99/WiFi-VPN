@@ -8,6 +8,7 @@
     <string name="notification_untrusted_wifi">Other Wi‑Fi — VPN active</string>
     <string name="notification_wifi_lost">No Wi‑Fi — VPN active</string>
     <string name="notification_waiting">Monitoring Wi‑Fi…</string>
+    <string name="notification_resolving_ssid">Resolving Wi‑Fi name…</string>
     <string name="notification_monitoring">Monitoring…</string>
     <string name="notification_monitoring_stopped">Monitoring stopped</string>
     <string name="notification_error">Error: %1$s</string>
@@ -15,6 +16,11 @@
     <string name="vpn_retrying">VPN connect failed — retry %1$d/%2$d in %3$ds…</string>
     <string name="vpn_retry_attempt">Connecting VPN (attempt %1$d of %2$d)…</string>
     <string name="vpn_connect_failed">VPN failed after %1$d attempts: %2$s</string>
+    <string name="vpn_waiting_handshake">Waiting for peer handshake… (%1$ds)</string>
+    <string name="vpn_handshake_timeout">No peer handshake</string>
+    <!-- Peer liveness: handshake too old → auto-reconnect (main UI, notification, widgets) -->
+    <string name="vpn_peer_unreachable">Peer unreachable, last handshake %1$d min ago</string>
+    <string name="vpn_peer_unreachable_never">Peer unreachable, no handshake yet</string>
     <string name="label_vpn_retry">VPN connection retries</string>
     <string name="vpn_retry_help">How many times to try connecting the VPN when not on trusted Wi‑Fi, and how long to wait between attempts.</string>
     <string name="label_vpn_retry_attempts">Retry attempts</string>
@@ -88,6 +94,7 @@
     <string name="msg_config_cleared">Config cleared</string>
     <string name="msg_config_empty">Load a WireGuard .conf file first</string>
     <string name="msg_config_invalid">Invalid WireGuard config: %1$s</string>
+    <string name="msg_config_too_large">Config file is too large (max %1$d KB)</string>
     <string name="msg_config_read_failed">Could not read file: %1$s</string>
     <string name="msg_exclusions_saved">Excluded apps saved</string>
     <string name="msg_vpn_permission_needed">Approve the system VPN dialog before monitoring can start</string>

@@ -12,6 +12,8 @@ import com.wifivpn.app.MainActivity
 import com.wifivpn.app.R
 import com.wifivpn.app.WifiVpnApp
 import com.wifivpn.app.service.WifiMonitorService
+import com.wifivpn.app.util.InternalIntentAuth
+import com.wifivpn.app.util.InternalIntentAuth.putInternalAuth
 import kotlinx.coroutines.launch
 
 /**
@@ -73,10 +75,12 @@ class MonitorTileService : TileService() {
                 putExtra(MainActivity.EXTRA_START_MONITORING, true)
                 putExtra(MainActivity.EXTRA_FROM_TILE, true)
                 putExtra(MainActivity.EXTRA_START_SOURCE, WifiMonitorService.SOURCE_TILE)
+                putInternalAuth(this@MonitorTileService)
             }
             if (requestStop) {
                 putExtra(MainActivity.EXTRA_REQUEST_STOP_MONITORING, true)
                 putExtra(MainActivity.EXTRA_START_SOURCE, WifiMonitorService.SOURCE_TILE)
+                putInternalAuth(this@MonitorTileService)
             }
         }
         val requestCode = when {

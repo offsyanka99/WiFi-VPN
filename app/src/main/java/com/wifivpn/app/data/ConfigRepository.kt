@@ -37,6 +37,12 @@ class ConfigRepository(private val context: Context) {
         val autoStartEnabled = booleanPreferencesKey("auto_start_enabled")
         val excludedApps = stringSetPreferencesKey("excluded_apps")
         val trustedWifiSsids = stringSetPreferencesKey("trusted_wifi_ssids")
+        /**
+         * Saved Wi‑Fi association keys → SSID for trusted networks.
+         * Entries: `"nid:3|U6"` or `"bssid:aa:bb:cc:dd:ee:ff|U6"`.
+         * Used after reboot when the platform redacts SSID in the background.
+         */
+        val trustedWifiAssociations = stringSetPreferencesKey("trusted_wifi_associations")
         val vpnRetryAttempts = intPreferencesKey("vpn_retry_attempts")
         val vpnRetryDelaySeconds = intPreferencesKey("vpn_retry_delay_seconds")
         val diagnosticLoggingEnabled = booleanPreferencesKey("diagnostic_logging_enabled")
@@ -160,6 +166,12 @@ class ConfigRepository(private val context: Context) {
     suspend fun setTrustedWifiSsids(ssids: Set<String>) {
         context.dataStore.edit { prefs ->
             prefs[keys.trustedWifiSsids] = ssids
+            // Drop association memory for SSIDs that are no longer trusted.
+            val kept = parseAssociationEntries(prefs[keys.trustedWifiAssociations].orEmpty())
+                .filter { (_, remembered) ->
+                    ssids.any { it.equals(remembered, ignoreCase = true) }
+                }
+            prefs[keys.trustedWifiAssociations] = encodeAssociationEntries(kept)
         }
     }
 
@@ -174,6 +186,31 @@ class ConfigRepository(private val context: Context) {
     suspend fun removeTrustedWifiSsid(ssid: String) {
         val current = getTrustedWifiSsids()
         setTrustedWifiSsids(current.filterNot { it.equals(ssid, ignoreCase = true) }.toSet())
+    }
+
+    /**
+     * Association key (e.g. `nid:3`) → SSID for networks we previously saw as trusted.
+     * Survives reboot so policy can recognize home Wi‑Fi when SSID is still redacted.
+     */
+    suspend fun getTrustedWifiAssociations(): Map<String, String> {
+        val raw = context.dataStore.data.first()[keys.trustedWifiAssociations].orEmpty()
+        return parseAssociationEntries(raw)
+    }
+
+    /**
+     * Remember that [assocKey] belongs to trusted [ssid]. Overwrites any previous mapping
+     * for the same key. Ignores blank keys / SSIDs.
+     */
+    suspend fun rememberTrustedWifiAssociation(assocKey: String, ssid: String) {
+        val key = assocKey.trim()
+        val name = normalizeSsid(ssid) ?: return
+        if (key.isBlank()) return
+        context.dataStore.edit { prefs ->
+            val map = parseAssociationEntries(prefs[keys.trustedWifiAssociations].orEmpty())
+                .toMutableMap()
+            map[key] = name
+            prefs[keys.trustedWifiAssociations] = encodeAssociationEntries(map)
+        }
     }
 
     suspend fun isMonitoringEnabled(): Boolean {
@@ -265,6 +302,29 @@ class ConfigRepository(private val context: Context) {
                 s = s.substring(1, s.length - 1).trim()
             }
             return s.ifBlank { null }
+        }
+
+        /** Parse `"key|ssid"` association entries. */
+        fun parseAssociationEntries(raw: Set<String>): Map<String, String> {
+            if (raw.isEmpty()) return emptyMap()
+            val out = LinkedHashMap<String, String>()
+            for (entry in raw) {
+                val sep = entry.indexOf('|')
+                if (sep <= 0 || sep >= entry.length - 1) continue
+                val key = entry.substring(0, sep).trim()
+                val ssid = normalizeSsid(entry.substring(sep + 1)) ?: continue
+                if (key.isNotEmpty()) out[key] = ssid
+            }
+            return out
+        }
+
+        fun encodeAssociationEntries(map: Map<String, String>): Set<String> {
+            if (map.isEmpty()) return emptySet()
+            return map.mapNotNull { (key, ssid) ->
+                val k = key.trim()
+                val s = normalizeSsid(ssid) ?: return@mapNotNull null
+                if (k.isEmpty()) null else "$k|$s"
+            }.toSet()
         }
     }
 }

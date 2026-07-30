@@ -1,6 +1,6 @@
 # WiFi VPN
 
-**Version 1.4.8**
+**Version 1.4.9**
 
 Android app that monitors **trusted Wi‑Fi networks** in the background and automatically controls a **WireGuard** tunnel:
 
@@ -38,18 +38,25 @@ Signed release APKs are published as **[GitHub Release assets](https://github.co
 | Version | Download |
 |---------|----------|
 | **Latest** | [Releases](https://github.com/offsyanka99/WiFi-VPN/releases/latest) |
+| **1.4.9** | [v1.4.9](https://github.com/offsyanka99/WiFi-VPN/releases/tag/v1.4.9) |
 | **1.4.8** | [v1.4.8](https://github.com/offsyanka99/WiFi-VPN/releases/tag/v1.4.8) |
 | **1.4.7** | [v1.4.7](https://github.com/offsyanka99/WiFi-VPN/releases/tag/v1.4.7) |
-| **1.4.6** | [v1.4.6](https://github.com/offsyanka99/WiFi-VPN/releases/tag/v1.4.6) |
 
 Install with:
 
 ```bash
 # After downloading the APK from the GitHub release page:
-adb install -r wifi-vpn-1.4.8-release.apk
+adb install -r wifi-vpn-1.4.9-release.apk
 ```
 
 ## Changelog
+
+### 1.4.9
+
+- **Peer health:** if handshake is older than ~4 minutes, tear down and reconnect with configured retries; wait for a live handshake before treating VPN as up; status on UI / notification / widgets
+- **Boot / SSID:** register location-info network callbacks before policy; location bridge for background SSID; persist trusted association (`networkId`/`BSSID` → SSID); sole-SSID memory only when association key is unavailable (not when key is known but untrusted)
+- **Security:** internal auth token for tile/widget/notification start-stop and widget toggle; serialized VPN policy decisions; backup excludes Keystore prefs v2; config import size cap (512 KiB); remove unused `CHANGE_NETWORK_STATE`
+- Fix: peer-dead detection no longer resets session clock on stats poll restart
 
 ### 1.4.8
 
@@ -164,7 +171,7 @@ adb install -r wifi-vpn-1.4.8-release.apk
 | **`release/1.0`** | Stable **v1.0** release line (bugfixes only if needed) |
 | **`main`** | Ongoing development for future versions |
 
-Download tags currently published: `v1.4.6` / `v1.4.7` / `v1.4.8`. Older changelog entries remain below for history.
+Download tags currently published: `v1.4.7` / `v1.4.8` / `v1.4.9`. Older changelog entries remain below for history.
 
 ## Features
 
@@ -211,7 +218,7 @@ source ~/.bashrc
 cd /path/to/WiFi-VPN
 ./gradlew assembleDebug
 # APK: app/build/outputs/apk/debug/wifi-vpn-<version>-debug.apk
-adb install -r app/build/outputs/apk/debug/wifi-vpn-1.4.8-debug.apk
+adb install -r app/build/outputs/apk/debug/wifi-vpn-1.4.9-debug.apk
 ```
 
 Release builds use signing from `keystore.properties` (see `app/build.gradle.kts`). Keystore files and that properties file are gitignored.
@@ -221,18 +228,18 @@ Release builds use signing from `keystore.properties` (see `app/build.gradle.kts
 ./gradlew :app:assembleRelease
 
 # Output:
-#   app/build/outputs/apk/release/wifi-vpn-1.4.8-release.apk
+#   app/build/outputs/apk/release/wifi-vpn-1.4.9-release.apk
 
-adb install -r app/build/outputs/apk/release/wifi-vpn-1.4.8-release.apk
+adb install -r app/build/outputs/apk/release/wifi-vpn-1.4.9-release.apk
 
 # Publish to GitHub (example) — do not commit the APK:
-gh release create v1.4.8 \
-  app/build/outputs/apk/release/wifi-vpn-1.4.8-release.apk \
-  --title "1.4.8" \
+gh release create v1.4.9 \
+  app/build/outputs/apk/release/wifi-vpn-1.4.9-release.apk \
+  --title "1.4.9" \
   --notes "See README changelog."
 ```
 
-Current release: **1.4.8** (`versionCode` 21). Build outputs under `app/build/` are gitignored. APKs are distributed via **GitHub Releases**, not the git tree.
+Current release: **1.4.9** (`versionCode` 25). Build outputs under `app/build/` are gitignored. APKs are distributed via **GitHub Releases**, not the git tree.
 
 ## Setup
 

@@ -25,7 +25,7 @@ class StatusWidget4x1Provider : AppWidgetProvider() {
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
         if (intent.action == StatusWidgets.ACTION_TOGGLE) {
-            StatusWidgets.handleToggle(context)
+            StatusWidgets.handleToggle(context, intent)
         }
     }
 

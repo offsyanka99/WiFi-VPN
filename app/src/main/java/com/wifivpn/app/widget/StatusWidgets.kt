@@ -17,6 +17,9 @@ import com.wifivpn.app.R
 import com.wifivpn.app.WifiVpnApp
 import com.wifivpn.app.service.WifiMonitorService
 import com.wifivpn.app.tile.MonitorTileService
+import com.wifivpn.app.util.InternalIntentAuth
+import com.wifivpn.app.util.InternalIntentAuth.hasValidInternalAuth
+import com.wifivpn.app.util.InternalIntentAuth.putInternalAuth
 import com.wifivpn.app.vpn.TransferStatsFormatter
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -115,7 +118,8 @@ object StatusWidgets {
             if (vpnActive) R.color.md_theme_primary else R.color.status_off
         )
 
-        // 2×2 layout has separate lines; 4×1 uses a compact summary.
+        // 2×2: separate monitoring / Wi‑Fi / VPN lines.
+        // 4×1: first line = monitoring only (avoids duplicating trusted + status message).
         if (layoutRes == R.layout.widget_status_2x2) {
             views.setTextViewText(R.id.widgetMonitoring, monitoringText)
             views.setTextColor(R.id.widgetMonitoring, monitoringColor)
@@ -124,27 +128,8 @@ object StatusWidgets {
             views.setTextViewText(R.id.widgetVpn, vpnText)
             views.setTextColor(R.id.widgetVpn, vpnColor)
         } else {
-            val wifiShort = formatWifiShort(context, state)
-            val vpnShort = if (vpnActive) {
-                context.getString(R.string.widget_summary_vpn_on)
-            } else {
-                context.getString(R.string.widget_summary_vpn_off)
-            }
-            val summary = context.getString(
-                R.string.widget_summary_line,
-                wifiShort,
-                vpnShort
-            )
-            views.setTextViewText(R.id.widgetSummary, summary)
-            views.setTextColor(
-                R.id.widgetSummary,
-                when {
-                    !monitoring -> ContextCompat.getColor(context, R.color.status_off)
-                    vpnActive -> ContextCompat.getColor(context, R.color.md_theme_primary)
-                    state.onTrustedWifi -> ContextCompat.getColor(context, R.color.status_ok)
-                    else -> ContextCompat.getColor(context, R.color.status_warn)
-                }
-            )
+            views.setTextViewText(R.id.widgetSummary, monitoringText)
+            views.setTextColor(R.id.widgetSummary, monitoringColor)
         }
 
         val toggleLabel = if (monitoring) {
@@ -163,12 +148,40 @@ object StatusWidgets {
         views.setTextViewText(R.id.widgetToggle, toggleLabel)
 
         // Totals + last handshake age while VPN is up (rates stay on the main screen).
+        // Prefer explicit status (peer unreachable, connecting, retry) whenever the
+        // service reports VPN inactive — even if the tunnel interface is still tearing down.
         val transferStats = if (vpnActive) app?.wireGuardManager?.transferStats?.value else null
-        if (transferStats != null) {
+        val statusMessage = state.message.trim()
+        val showStatusMessage = monitoring && !state.vpnActive && statusMessage.isNotEmpty()
+        if (showStatusMessage) {
+            // e.g. "Trusted Wi‑Fi — VPN off", "Connecting…", peer unreachable, failures
+            views.setViewVisibility(R.id.widgetTransfer, View.VISIBLE)
+            views.setTextViewText(R.id.widgetTransfer, statusMessage)
+            // Trusted / steady-OK → green; connecting / errors → amber
+            val statusColor = when {
+                state.onTrustedWifi -> R.color.status_ok
+                statusMessage == context.getString(R.string.notification_trusted_wifi) ->
+                    R.color.status_ok
+                statusMessage == context.getString(R.string.notification_untrusted_wifi) ||
+                    statusMessage == context.getString(R.string.notification_wifi_lost) ->
+                    R.color.md_theme_primary
+                else -> R.color.status_warn
+            }
+            views.setTextColor(
+                R.id.widgetTransfer,
+                ContextCompat.getColor(context, statusColor)
+            )
+            views.setViewVisibility(R.id.widgetHandshake, View.GONE)
+            views.setTextViewText(R.id.widgetHandshake, "")
+        } else if (transferStats != null) {
             views.setViewVisibility(R.id.widgetTransfer, View.VISIBLE)
             views.setTextViewText(
                 R.id.widgetTransfer,
                 TransferStatsFormatter.formatWidgetTransferLine(context, transferStats)
+            )
+            views.setTextColor(
+                R.id.widgetTransfer,
+                ContextCompat.getColor(context, R.color.status_off)
             )
             views.setViewVisibility(R.id.widgetHandshake, View.VISIBLE)
             views.setTextViewText(
@@ -198,8 +211,13 @@ object StatusWidgets {
      * Handles start/stop from the widget toggle.
      * Start goes through [WidgetStartActivity] (translucent) so the location FGS
      * is eligible on Android 14+ without flashing the main UI.
+     * Requires [InternalIntentAuth] so third-party apps cannot forge [ACTION_TOGGLE].
      */
-    fun handleToggle(context: Context) {
+    fun handleToggle(context: Context, intent: Intent? = null) {
+        if (intent != null && !intent.hasValidInternalAuth(context)) {
+            Log.w(TAG, "Ignoring widget toggle without internal auth")
+            return
+        }
         val appContext = context.applicationContext
         val app = appContext as? WifiVpnApp
         val running = WifiMonitorService.uiState.value.monitoring ||
@@ -208,12 +226,13 @@ object StatusWidgets {
         if (running) {
             // Open MainActivity so an insecure-connection warning can be shown if needed
             Log.i(TAG, "Stop monitoring from widget — open confirm UI")
-            val intent = Intent(appContext, MainActivity::class.java).apply {
+            val stopIntent = Intent(appContext, MainActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                 putExtra(MainActivity.EXTRA_REQUEST_STOP_MONITORING, true)
                 putExtra(MainActivity.EXTRA_START_SOURCE, WifiMonitorService.SOURCE_WIDGET)
+                putInternalAuth(appContext)
             }
-            appContext.startActivity(intent)
+            appContext.startActivity(stopIntent)
             return
         }
 
@@ -252,6 +271,7 @@ object StatusWidgets {
         // Route through 2×2 provider; both providers handle ACTION_TOGGLE the same way.
         val intent = Intent(context, StatusWidget2x2Provider::class.java).apply {
             action = ACTION_TOGGLE
+            putInternalAuth(context)
         }
         return PendingIntent.getBroadcast(
             context,
@@ -284,17 +304,6 @@ object StatusWidgets {
             state.currentSsid != null ->
                 context.getString(R.string.status_wifi_other, state.currentSsid)
             else -> context.getString(R.string.status_wifi_unknown)
-        }
-    }
-
-    private fun formatWifiShort(
-        context: Context,
-        state: WifiMonitorService.MonitorUiState
-    ): String {
-        return when {
-            !state.wifiConnected -> context.getString(R.string.widget_summary_wifi_off)
-            state.onTrustedWifi -> context.getString(R.string.widget_summary_wifi_trusted)
-            else -> context.getString(R.string.widget_summary_wifi_other)
         }
     }
 }

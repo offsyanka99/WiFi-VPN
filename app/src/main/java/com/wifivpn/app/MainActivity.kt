@@ -24,6 +24,8 @@ import com.wifivpn.app.databinding.DialogAboutBinding
 import com.wifivpn.app.network.WifiConnectivityMonitor
 import com.wifivpn.app.service.WifiMonitorService
 import com.wifivpn.app.tile.MonitorTileService
+import com.wifivpn.app.util.InternalIntentAuth
+import com.wifivpn.app.util.InternalIntentAuth.hasValidInternalAuth
 import com.wifivpn.app.vpn.TransferStatsFormatter
 import com.wifivpn.app.vpn.TunnelTransferStats
 import com.wifivpn.app.widget.StatusWidgets
@@ -144,6 +146,23 @@ class MainActivity : AppCompatActivity() {
 
     private fun handleLaunchIntents(intent: Intent?) {
         if (intent == null) return
+        // Start/stop extras only from our PendingIntents (tile, widget, notification).
+        // Launcher is exported — ignore forged extras without [InternalIntentAuth].
+        val authorized = intent.hasValidInternalAuth(this)
+        if (!authorized) {
+            if (intent.hasExtra(EXTRA_START_MONITORING) ||
+                intent.hasExtra(EXTRA_REQUEST_STOP_MONITORING)
+            ) {
+                Log.w(TAG, "Ignoring monitor control extras without internal auth")
+            }
+            intent.removeExtra(EXTRA_START_MONITORING)
+            intent.removeExtra(EXTRA_REQUEST_STOP_MONITORING)
+            intent.removeExtra(EXTRA_FROM_TILE)
+            intent.removeExtra(EXTRA_START_SOURCE)
+            intent.removeExtra(InternalIntentAuth.EXTRA_TOKEN)
+            return
+        }
+        intent.removeExtra(InternalIntentAuth.EXTRA_TOKEN)
         handleStartMonitoringIntent(intent)
         if (intent.getBooleanExtra(EXTRA_REQUEST_STOP_MONITORING, false)) {
             intent.removeExtra(EXTRA_REQUEST_STOP_MONITORING)
@@ -157,6 +176,7 @@ class MainActivity : AppCompatActivity() {
     /**
      * QS tile / home widget starts monitoring via this Activity so the location
      * FGS can start from a foreground-eligible process (Android 14+ requirement).
+     * Caller must already have validated [InternalIntentAuth].
      */
     private fun handleStartMonitoringIntent(intent: Intent?) {
         if (intent?.getBooleanExtra(EXTRA_START_MONITORING, false) != true) return

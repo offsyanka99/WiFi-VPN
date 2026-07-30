@@ -341,8 +341,25 @@ class ConfigurationActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 val fileName = queryDisplayName(uri) ?: "config.conf"
-                val raw = contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
-                    .orEmpty()
+                val raw = contentResolver.openInputStream(uri)?.use { input ->
+                    val buf = ByteArray(MAX_CONFIG_IMPORT_BYTES + 1)
+                    var offset = 0
+                    while (offset < buf.size) {
+                        val n = input.read(buf, offset, buf.size - offset)
+                        if (n < 0) break
+                        offset += n
+                    }
+                    if (offset > MAX_CONFIG_IMPORT_BYTES) {
+                        toast(
+                            getString(
+                                R.string.msg_config_too_large,
+                                MAX_CONFIG_IMPORT_BYTES / 1024
+                            )
+                        )
+                        return@launch
+                    }
+                    String(buf, 0, offset, Charsets.UTF_8)
+                }.orEmpty()
                 if (raw.isBlank()) {
                     toast(getString(R.string.msg_config_empty))
                     return@launch
@@ -357,12 +374,7 @@ class ConfigurationActivity : AppCompatActivity() {
                     )
                     return@launch
                 }
-                runCatching {
-                    contentResolver.takePersistableUriPermission(
-                        uri,
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION
-                    )
-                }
+                // Content is stored encrypted in-app — no need to keep persistable URI access.
                 app.configRepository.setWireGuardConfig(raw, fileName)
                 logConfig(
                     "wireguard_config loaded file=$fileName bytes=${raw.length} " +
@@ -568,5 +580,7 @@ class ConfigurationActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "ConfigurationActivity"
         private const val CAT_CONFIG = "CONFIG"
+        /** Reject oversized imports (DoS / accidental binary). WireGuard confs are tiny. */
+        private const val MAX_CONFIG_IMPORT_BYTES = 512 * 1024
     }
 }

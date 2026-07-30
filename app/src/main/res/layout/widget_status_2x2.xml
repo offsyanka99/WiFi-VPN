@@ -61,11 +61,11 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="4dp"
         android:ellipsize="end"
-        android:maxLines="1"
+        android:maxLines="2"
         android:textColor="@color/status_off"
         android:textSize="11sp"
         android:visibility="gone"
-        tools:text="↓128.50 MB · ↑12.10 MB"
+        tools:text="Connecting VPN…"
         tools:visibility="visible" />
 
     <TextView
