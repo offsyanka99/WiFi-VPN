@@ -69,6 +69,13 @@ android {
             useLegacyPackaging = true
         }
     }
+
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+            isReturnDefaultValues = true
+        }
+    }
 }
 
 dependencies {
@@ -88,4 +95,11 @@ dependencies {
 
     // WireGuard embeddable tunnel (userspace Go backend)
     implementation(libs.wireguard.tunnel)
+
+    // Unit tests (JVM + Robolectric for Android framework APIs)
+    testImplementation(libs.junit)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
+    testImplementation(libs.androidx.test.ext.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
 }

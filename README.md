@@ -221,6 +221,17 @@ cd /path/to/WiFi-VPN
 adb install -r app/build/outputs/apk/debug/wifi-vpn-1.4.9-debug.apk
 ```
 
+### Unit tests
+
+JVM unit tests (JUnit 4 + Robolectric) cover config helpers, SSID normalization,
+policy snapshot equality, transfer formatting, intent auth, and WireGuard error
+classification:
+
+```bash
+./gradlew :app:testDebugUnitTest
+# Report: app/build/reports/tests/testDebugUnitTest/index.html
+```
+
 Release builds use signing from `keystore.properties` (see `app/build.gradle.kts`). Keystore files and that properties file are gitignored.
 
 ```bash
