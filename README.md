@@ -1,6 +1,6 @@
 # WiFi VPN
 
-**Version 1.4.9**
+**Version 1.4.10**
 
 Android app that monitors **trusted Wi‑Fi networks** in the background and automatically controls a **WireGuard** tunnel:
 
@@ -24,7 +24,7 @@ Built with **Kotlin + Jetpack** (AGP 9 built-in Kotlin, Foreground Service, Conn
 - **Main** — status card (monitoring, Wi‑Fi, VPN), VPN transfer stats while the tunnel is on, and start/stop control  
 - **Configuration** — WireGuard config, trusted networks, exclusions, retries, permissions, and diagnostic log (section **(i)** help)  
 - **About** — app name, version, contact email, and year  
-- **Widgets** — 2×2 status card and 4×1 compact bar (tunnel name, Wi‑Fi / VPN, session totals + handshake age when VPN is on, Start/Stop)  
+- **Widgets** — 2×2 status card and 4×1 compact bar (tunnel name + **Monitoring: ON/OFF**, then **VPN: ON/OFF**, session totals + handshake age when VPN is on, Start/Stop)  
 
 
 ## Contact
@@ -38,18 +38,23 @@ Signed release APKs are published as **[GitHub Release assets](https://github.co
 | Version | Download |
 |---------|----------|
 | **Latest** | [Releases](https://github.com/offsyanka99/WiFi-VPN/releases/latest) |
+| **1.4.10** | [v1.4.10](https://github.com/offsyanka99/WiFi-VPN/releases/tag/v1.4.10) |
 | **1.4.9** | [v1.4.9](https://github.com/offsyanka99/WiFi-VPN/releases/tag/v1.4.9) |
 | **1.4.8** | [v1.4.8](https://github.com/offsyanka99/WiFi-VPN/releases/tag/v1.4.8) |
-| **1.4.7** | [v1.4.7](https://github.com/offsyanka99/WiFi-VPN/releases/tag/v1.4.7) |
 
 Install with:
 
 ```bash
 # After downloading the APK from the GitHub release page:
-adb install -r wifi-vpn-1.4.9-release.apk
+adb install -r wifi-vpn-1.4.10-release.apk
 ```
 
 ## Changelog
+
+### 1.4.10
+
+- **Status labels:** monitoring and VPN show **ON** / **OFF** (main screen, 2×2 widget, 4×1 widget)
+- **4×1 widget:** first line is tunnel name + **Monitoring: ON/OFF**; second line is **VPN: ON/OFF**; transfer / handshake unchanged
 
 ### 1.4.9
 
@@ -171,7 +176,7 @@ adb install -r wifi-vpn-1.4.9-release.apk
 | **`release/1.0`** | Stable **v1.0** release line (bugfixes only if needed) |
 | **`main`** | Ongoing development for future versions |
 
-Download tags currently published: `v1.4.7` / `v1.4.8` / `v1.4.9`. Older changelog entries remain below for history.
+Download tags currently published: `v1.4.8` / `v1.4.9` / `v1.4.10`. Older changelog entries remain below for history.
 
 ## Features
 
@@ -188,7 +193,7 @@ Download tags currently published: `v1.4.7` / `v1.4.8` / `v1.4.9`. Older changel
 - **Battery optimization** exemption request and **Manage app if unused** shortcut (system settings)
 - **Quick Settings tile** to start/stop monitoring (label = tunnel/config name when loaded)
 - **VPN transfer stats** (main screen): live download/upload speed, session received/sent totals, last handshake age while the tunnel is up
-- **Home-screen widgets** (2×2 status and 4×1 bar) to glance monitoring / Wi‑Fi / VPN, session totals + handshake when VPN is on, and start/stop
+- **Home-screen widgets** (2×2 status and 4×1 bar) to glance **Monitoring: ON/OFF**, Wi‑Fi, **VPN: ON/OFF**, session totals + handshake when VPN is on, and start/stop
 - Location / nearby Wi‑Fi permission (needed to read SSIDs), and notification permission
 - **Screen off / locked** — monitor keeps a correct trusted/untrusted decision when the system redacts the SSID; VPN still turns on after leaving trusted Wi‑Fi
 
@@ -218,7 +223,7 @@ source ~/.bashrc
 cd /path/to/WiFi-VPN
 ./gradlew assembleDebug
 # APK: app/build/outputs/apk/debug/wifi-vpn-<version>-debug.apk
-adb install -r app/build/outputs/apk/debug/wifi-vpn-1.4.9-debug.apk
+adb install -r app/build/outputs/apk/debug/wifi-vpn-1.4.10-debug.apk
 ```
 
 ### Unit tests
@@ -239,18 +244,18 @@ Release builds use signing from `keystore.properties` (see `app/build.gradle.kts
 ./gradlew :app:assembleRelease
 
 # Output:
-#   app/build/outputs/apk/release/wifi-vpn-1.4.9-release.apk
+#   app/build/outputs/apk/release/wifi-vpn-1.4.10-release.apk
 
-adb install -r app/build/outputs/apk/release/wifi-vpn-1.4.9-release.apk
+adb install -r app/build/outputs/apk/release/wifi-vpn-1.4.10-release.apk
 
 # Publish to GitHub (example) — do not commit the APK:
-gh release create v1.4.9 \
-  app/build/outputs/apk/release/wifi-vpn-1.4.9-release.apk \
-  --title "1.4.9" \
+gh release create v1.4.10 \
+  app/build/outputs/apk/release/wifi-vpn-1.4.10-release.apk \
+  --title "1.4.10" \
   --notes "See README changelog."
 ```
 
-Current release: **1.4.9** (`versionCode` 25). Build outputs under `app/build/` are gitignored. APKs are distributed via **GitHub Releases**, not the git tree.
+Current release: **1.4.10** (`versionCode` 26). Build outputs under `app/build/` are gitignored. APKs are distributed via **GitHub Releases**, not the git tree.
 
 ## Setup
 

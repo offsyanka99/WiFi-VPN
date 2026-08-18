@@ -100,6 +100,9 @@ object StatusWidgets {
         val vpnText = context.getString(
             if (vpnActive) R.string.status_vpn_on else R.string.status_vpn_off
         )
+        val vpnCompact = context.getString(
+            if (vpnActive) R.string.widget_vpn_on else R.string.widget_vpn_off
+        )
 
         val monitoringColor = ContextCompat.getColor(
             context,
@@ -119,7 +122,7 @@ object StatusWidgets {
         )
 
         // 2×2: separate monitoring / Wi‑Fi / VPN lines.
-        // 4×1: first line = monitoring only (avoids duplicating trusted + status message).
+        // 4×1: tunnel name + ON/OFF, then VPN status.
         if (layoutRes == R.layout.widget_status_2x2) {
             views.setTextViewText(R.id.widgetMonitoring, monitoringText)
             views.setTextColor(R.id.widgetMonitoring, monitoringColor)
@@ -128,8 +131,10 @@ object StatusWidgets {
             views.setTextViewText(R.id.widgetVpn, vpnText)
             views.setTextColor(R.id.widgetVpn, vpnColor)
         } else {
-            views.setTextViewText(R.id.widgetSummary, monitoringText)
-            views.setTextColor(R.id.widgetSummary, monitoringColor)
+            views.setTextViewText(R.id.widgetMonitoring, monitoringText)
+            views.setTextColor(R.id.widgetMonitoring, monitoringColor)
+            views.setTextViewText(R.id.widgetSummary, vpnCompact)
+            views.setTextColor(R.id.widgetSummary, vpnColor)
         }
 
         val toggleLabel = if (monitoring) {

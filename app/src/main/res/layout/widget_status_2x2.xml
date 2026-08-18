@@ -30,7 +30,7 @@
         android:text="@string/status_monitoring_off"
         android:textColor="@color/status_off"
         android:textSize="13sp"
-        tools:text="Monitoring: on" />
+        tools:text="Monitoring: ON" />
 
     <TextView
         android:id="@+id/widgetWifi"
@@ -53,7 +53,7 @@
         android:text="@string/status_vpn_off"
         android:textColor="@color/status_off"
         android:textSize="13sp"
-        tools:text="VPN: on" />
+        tools:text="VPN: ON" />
 
     <TextView
         android:id="@+id/widgetTransfer"
