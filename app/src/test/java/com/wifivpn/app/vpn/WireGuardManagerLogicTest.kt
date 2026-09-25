@@ -2,6 +2,7 @@ package com.wifivpn.app.vpn
 
 import android.app.Application
 import androidx.test.core.app.ApplicationProvider
+import com.wireguard.android.backend.BackendException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -30,10 +31,25 @@ class WireGuardManagerLogicTest {
     @Test
     fun isNonRetryable_permissionParseEmpty() {
         val mgr = WireGuardManager(context)
-        assertTrue(mgr.isNonRetryable(IllegalStateException("VPN permission not granted")))
+        assertTrue(mgr.isNonRetryable(WireGuardManager.VpnPermissionMissingException()))
         assertTrue(mgr.isNonRetryable(IllegalArgumentException("Config is empty")))
-        assertTrue(mgr.isNonRetryable(RuntimeException("parse failed")))
-        assertTrue(mgr.isNonRetryable(RuntimeException("BadConfig: line 2")))
+        assertTrue(
+            mgr.isNonRetryable(
+                BackendException(BackendException.Reason.VPN_NOT_AUTHORIZED)
+            )
+        )
+        assertTrue(
+            mgr.isNonRetryable(
+                BackendException(BackendException.Reason.TUNNEL_MISSING_CONFIG)
+            )
+        )
+    }
+
+    @Test
+    fun isNonRetryable_unwrapsCause() {
+        val mgr = WireGuardManager(context)
+        val wrapped = RuntimeException("wrapped", WireGuardManager.VpnPermissionMissingException())
+        assertTrue(mgr.isNonRetryable(wrapped))
     }
 
     @Test
@@ -42,7 +58,24 @@ class WireGuardManagerLogicTest {
         assertFalse(mgr.isNonRetryable(null))
         assertFalse(mgr.isNonRetryable(IllegalStateException("timeout")))
         assertFalse(mgr.isNonRetryable(RuntimeException("No peer handshake")))
-        assertFalse(mgr.isNonRetryable(RuntimeException("DNS failure")))
+        assertFalse(
+            mgr.isNonRetryable(
+                BackendException(BackendException.Reason.DNS_RESOLUTION_FAILURE)
+            )
+        )
+        assertFalse(
+            mgr.isNonRetryable(
+                BackendException(BackendException.Reason.UNABLE_TO_START_VPN)
+            )
+        )
+    }
+
+    @Test
+    fun isNonRetryable_ignoresMessageText() {
+        val mgr = WireGuardManager(context)
+        // Classification must come from types, not from wording that a library bump can change.
+        assertFalse(mgr.isNonRetryable(RuntimeException("parse failed")))
+        assertFalse(mgr.isNonRetryable(RuntimeException("permission-ish wording")))
     }
 
     @Test

@@ -11,8 +11,11 @@ import com.wifivpn.app.log.DiagnosticSupport
 import com.wireguard.android.backend.BackendException
 import com.wireguard.android.backend.GoBackend
 import com.wireguard.android.backend.Tunnel
+import com.wireguard.config.BadConfigException
 import com.wireguard.config.Config
 import com.wireguard.config.Interface
+import com.wireguard.config.ParseException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -192,7 +195,7 @@ class WireGuardManager(private val context: Context) {
                 }
                 val config = buildConfigWithExclusions(rawConfig, excludedPackages).getOrThrow()
                 if (prepareVpnPermission() != null) {
-                    error("VPN permission not granted")
+                    throw VpnPermissionMissingException()
                 }
                 Log.i(
                     TAG,
@@ -201,7 +204,7 @@ class WireGuardManager(private val context: Context) {
                 diagnosticLogger()?.i(
                     CAT_TUNNEL,
                     "bringing UP excluded=${config.`interface`.excludedApplications.size} " +
-                        "config ${DiagnosticSupport.configFingerprint(rawConfig)}"
+                        "config ${DiagnosticSupport.configFingerprint(context, rawConfig)}"
                 )
                 val newState = backend.setState(tunnel, Tunnel.State.UP, config)
                 publishState(newState)
@@ -215,6 +218,8 @@ class WireGuardManager(private val context: Context) {
                 )
                 Unit
             }.onFailure { e ->
+                // Policy changes cancel in-flight bring-up; that is not a tunnel failure.
+                if (e is CancellationException) throw e
                 Log.e(TAG, "Failed to bring tunnel up: ${formatError(e)}", e)
                 diagnosticLogger()?.logException(
                     CAT_TUNNEL,
@@ -243,6 +248,7 @@ class WireGuardManager(private val context: Context) {
                 diagnosticLogger()?.i(CAT_TUNNEL, "DOWN success")
                 Unit
             }.onFailure { e ->
+                if (e is CancellationException) throw e
                 Log.e(TAG, "Failed to bring tunnel down: ${formatError(e)}", e)
                 diagnosticLogger()?.logException(
                     CAT_TUNNEL,
@@ -253,19 +259,37 @@ class WireGuardManager(private val context: Context) {
         }
     }
 
-    /** Errors that retries will not fix (skip remaining attempts). */
-    fun isNonRetryable(error: Throwable?): Boolean {
-        val msg = formatError(error).lowercase()
-        return msg.contains("permission") ||
-            msg.contains("config is empty") ||
-            msg.contains("parse") ||
-            msg.contains("badconfig")
+    /**
+     * Errors that retries will not fix (skip remaining attempts).
+     *
+     * Classified from exception types and [BackendException.Reason] rather than message
+     * text, which is not a stable API and would silently turn permanent failures into
+     * retry storms after a library upgrade.
+     */
+    fun isNonRetryable(error: Throwable?): Boolean = when (error) {
+        null -> false
+        is VpnPermissionMissingException -> true
+        is BadConfigException -> true
+        is ParseException -> true
+        is IllegalArgumentException -> true
+        is BackendException -> error.reason in NON_RETRYABLE_REASONS
+        else -> error.cause?.takeIf { it !== error }?.let { isNonRetryable(it) } ?: false
     }
+
+    /** Thrown when the user has not granted (or has revoked) the VPN consent dialog. */
+    class VpnPermissionMissingException :
+        IllegalStateException("VPN permission not granted")
 
     companion object {
         private const val TAG = "WireGuardManager"
         private const val CAT_TUNNEL = "TUNNEL"
         const val TUNNEL_NAME = "wifi-vpn"
+
+        private val NON_RETRYABLE_REASONS = setOf(
+            BackendException.Reason.VPN_NOT_AUTHORIZED,
+            BackendException.Reason.TUNNEL_MISSING_CONFIG,
+            BackendException.Reason.UNKNOWN_KERNEL_MODULE_NAME
+        )
 
         fun formatError(error: Throwable?): String {
             if (error == null) return "unknown error"

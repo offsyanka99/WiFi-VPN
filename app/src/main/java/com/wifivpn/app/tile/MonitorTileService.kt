@@ -14,6 +14,7 @@ import com.wifivpn.app.WifiVpnApp
 import com.wifivpn.app.service.WifiMonitorService
 import com.wifivpn.app.util.InternalIntentAuth
 import com.wifivpn.app.util.InternalIntentAuth.putInternalAuth
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 /**
@@ -31,7 +32,7 @@ class MonitorTileService : TileService() {
             runCatching {
                 app.configRepository.migrateSecureConfigIfNeeded()
                 app.refreshRuntimeCaches()
-            }
+            }.onFailure { if (it is CancellationException) throw it }
         }
     }
 
@@ -97,7 +98,8 @@ class MonitorTileService : TileService() {
             )
             startActivityAndCollapse(pending)
         } else {
-            @Suppress("DEPRECATION")
+            // PendingIntent overload does not exist before API 34.
+            @Suppress("DEPRECATION", "StartActivityAndCollapseDeprecated")
             startActivityAndCollapse(intent)
         }
     }

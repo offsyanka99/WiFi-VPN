@@ -11,7 +11,10 @@ import com.wifivpn.app.R
 import com.wifivpn.app.WifiVpnApp
 import com.wifivpn.app.log.DiagnosticSupport
 import com.wifivpn.app.util.AppInfo
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Diagnostic log card: enable toggle, send email, clear.
@@ -122,48 +125,70 @@ class DiagnosticLogHelper(
             return
         }
         activity.lifecycleScope.launch {
-            logger.i("UI", "user requested send diagnostic log via email")
-            val wasEnabled = logger.isEnabled()
-            if (!wasEnabled) {
-                logger.setEnabled(true)
+            if (!app.configRepository.isDiagnosticShareConsented()) {
+                confirmShareConsent()
+                return@launch
             }
-            try {
-                DiagnosticSupport.logSupportSummary(app, "send_log")
-                logger.i(
-                    "SUPPORT",
-                    "perms at send: ${DiagnosticSupport.permissionSnapshot(activity)}"
-                )
-            } finally {
-                if (!wasEnabled) {
-                    logger.setEnabled(false)
+            shareLog()
+        }
+    }
+
+    /**
+     * The log leaves the device, so the user must be told what is in it first.
+     * Identifiers are pseudonymised, but device model and behaviour timings are not.
+     */
+    private fun confirmShareConsent() {
+        if (activity.isFinishing || activity.isDestroyed) return
+        MaterialAlertDialogBuilder(activity)
+            .setTitle(R.string.dialog_diagnostic_share_title)
+            .setMessage(R.string.dialog_diagnostic_share_message)
+            .setPositiveButton(R.string.btn_diagnostic_share_accept) { _, _ ->
+                activity.lifecycleScope.launch {
+                    app.configRepository.setDiagnosticShareConsented(true)
+                    shareLog()
                 }
             }
-            val version = AppInfo.versionName(activity)
-            val device = "${Build.MANUFACTURER} ${Build.MODEL}"
-            val androidLabel = "${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})"
-            val body = activity.getString(
-                R.string.diagnostic_log_email_body,
-                version,
-                device,
-                androidLabel
-            )
-            val intent = logger.createEmailShareIntent(
+            .setNegativeButton(R.string.btn_cancel, null)
+            .show()
+    }
+
+    private suspend fun shareLog() {
+        val logger = app.diagnosticLogger
+        logger.i("UI", "user requested send diagnostic log via email")
+        // No-ops when logging is off: never write new entries the user did not ask for.
+        DiagnosticSupport.logSupportSummary(app, "send_log")
+        logger.i("SUPPORT", "perms at send: ${DiagnosticSupport.permissionSnapshot(activity)}")
+
+        val version = AppInfo.versionName(activity)
+        val device = "${Build.MANUFACTURER} ${Build.MODEL}"
+        val androidLabel = "${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})"
+        val body = activity.getString(
+            R.string.diagnostic_log_email_body,
+            version,
+            device,
+            androidLabel
+        )
+        // Flushes and fsyncs the log file — must not run on the main thread.
+        val intent = withContext(Dispatchers.IO) {
+            logger.createEmailShareIntent(
                 subject = activity.getString(R.string.diagnostic_log_email_subject),
                 body = body,
                 toAddress = activity.getString(R.string.about_email),
                 chooserTitle = activity.getString(R.string.diagnostic_log_share_title)
             )
-            if (intent == null) {
-                toast(activity.getString(R.string.msg_diagnostic_log_share_failed))
-                return@launch
-            }
-            try {
-                activity.startActivity(intent)
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to launch log share", e)
-                app.diagnosticLogger.logException("UI", "diagnostic log share failed", e)
-                toast(activity.getString(R.string.msg_diagnostic_log_share_failed))
-            }
+        }
+        if (intent == null) {
+            toast(activity.getString(R.string.msg_diagnostic_log_share_failed))
+            return
+        }
+        try {
+            activity.startActivity(intent)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to launch log share", e)
+            logger.logException("UI", "diagnostic log share failed", e)
+            toast(activity.getString(R.string.msg_diagnostic_log_share_failed))
         }
     }
 

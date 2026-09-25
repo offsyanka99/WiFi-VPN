@@ -12,10 +12,10 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.OutputStreamWriter
-import java.text.SimpleDateFormat
-import java.util.Date
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
-import java.util.TimeZone
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 import kotlinx.coroutines.CoroutineScope
@@ -39,8 +39,9 @@ class DiagnosticLogger(context: Context) {
 
     private val appContext = context.applicationContext
     private val lock = ReentrantLock()
-    private val logDir: File = File(appContext.filesDir, LOG_DIR_NAME).also { it.mkdirs() }
-    private val logFile: File = File(logDir, LOG_FILE_NAME)
+    // Lazy so constructing the logger in Application.onCreate does not touch disk.
+    private val logDir: File by lazy { File(appContext.filesDir, LOG_DIR_NAME).also { it.mkdirs() } }
+    private val logFile: File by lazy { File(logDir, LOG_FILE_NAME) }
 
     private val writeScope =
         CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(1))
@@ -54,9 +55,13 @@ class DiagnosticLogger(context: Context) {
     private var lastNetworkMessage: String? = null
     private var lastNetworkAtMs: Long = 0L
 
-    private val timeFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US).apply {
-        timeZone = TimeZone.getDefault()
-    }
+    /** Cached answer for "is there anything to send?" so UI checks never hit disk. */
+    @Volatile
+    private var hasContentCache: Boolean? = null
+
+    // Zone captured once at construction, matching the previous SimpleDateFormat behaviour.
+    private val timeFormat: DateTimeFormatter =
+        DateTimeFormatter.ofPattern(TIME_PATTERN, Locale.US).withZone(ZoneId.systemDefault())
 
     fun isEnabled(): Boolean = enabled
 
@@ -102,7 +107,7 @@ class DiagnosticLogger(context: Context) {
                 val empty = (!logFile.exists() || logFile.length() == 0L) && lineBuffer.isEmpty()
                 val msg = if (empty) {
                     "logging enabled | WiFi VPN diagnostic log " +
-                        "(timezone=${TimeZone.getDefault().id})"
+                        "(timezone=${ZoneId.systemDefault().id})"
                 } else {
                     "logging enabled"
                 }
@@ -208,11 +213,17 @@ class DiagnosticLogger(context: Context) {
         return logFile
     }
 
+    /**
+     * True when the log has anything worth sending. Answered from memory — callers are
+     * on the main thread (button enablement), so this must not flush or fsync.
+     */
     fun logFileExists(): Boolean {
-        flushSync()
-        return lock.withLock {
-            logFile.exists() && logFile.length() > 0L
+        hasContentCache?.let { return it }
+        val present = lock.withLock {
+            lineBuffer.isNotEmpty() || (logFile.exists() && logFile.length() > 0L)
         }
+        hasContentCache = present
+        return present
     }
 
     fun hasContent(): Boolean = logFileExists()
@@ -222,6 +233,7 @@ class DiagnosticLogger(context: Context) {
             lineBuffer.clear()
             lastNetworkMessage = null
             logFile.writeText("")
+            hasContentCache = false
             if (enabled) {
                 appendLineUnlocked("INFO", "SESSION", "log cleared", skipRotate = true)
                 flushBufferToFileUnlocked()
@@ -238,6 +250,7 @@ class DiagnosticLogger(context: Context) {
                     logFile.writeText("")
                 }
             }
+            hasContentCache = false
         }
     }
 
@@ -335,8 +348,9 @@ class DiagnosticLogger(context: Context) {
             flushBufferToFileUnlocked()
             rotateIfNeededUnlocked()
         }
-        val line = "${timeFormat.format(Date())} $level [$category] $message\n"
+        val line = "${timeFormat.format(Instant.now())} $level [$category] $message\n"
         lineBuffer.append(line)
+        hasContentCache = true
     }
 
     private fun writeStackUnlocked(
@@ -364,9 +378,6 @@ class DiagnosticLogger(context: Context) {
     private fun flushBufferToFileUnlocked() {
         if (lineBuffer.isEmpty()) return
         try {
-            if (!logFile.exists() || logFile.length() == 0L) {
-                // optional: nothing
-            }
             rotateIfNeededUnlocked()
             FileOutputStream(logFile, /* append = */ true).use { fos ->
                 BufferedWriter(OutputStreamWriter(fos, Charsets.UTF_8), STREAM_BUF).use { writer ->
@@ -374,6 +385,7 @@ class DiagnosticLogger(context: Context) {
                 }
             }
             lineBuffer.clear()
+            hasContentCache = true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to write diagnostic log", e)
         }
@@ -426,7 +438,7 @@ class DiagnosticLogger(context: Context) {
                 }
                 FileOutputStream(temp).buffered(STREAM_BUF).use { out ->
                     val header =
-                        "${timeFormat.format(Date())} INFO [SESSION] log rotated " +
+                        "${timeFormat.format(Instant.now())} INFO [SESSION] log rotated " +
                             "(kept recent half, max_bytes=$MAX_BYTES)\n"
                     out.write(header.toByteArray(Charsets.UTF_8))
                     input.copyTo(out, STREAM_BUF)
@@ -444,10 +456,9 @@ class DiagnosticLogger(context: Context) {
 
     /** [Thread.getId] is deprecated; [Thread.threadId] is preferred on newer runtimes. */
     private fun threadId(thread: Thread): Long {
-        return try {
-            // Available on modern ART / JDK; fall back if missing on older devices.
+        return if (Build.VERSION.SDK_INT >= 36) {
             thread.threadId()
-        } catch (_: Throwable) {
+        } else {
             @Suppress("DEPRECATION")
             thread.id
         }
@@ -455,6 +466,8 @@ class DiagnosticLogger(context: Context) {
 
     companion object {
         private const val TAG = "DiagnosticLog"
+        /** Log line timestamp; shared with tests so the on-disk format cannot drift. */
+        internal const val TIME_PATTERN = "yyyy-MM-dd HH:mm:ss.SSS"
         private const val CAT_CRASH = "CRASH"
         private const val CAT_NETWORK = "NETWORK"
         private const val LOG_DIR_NAME = "logs"

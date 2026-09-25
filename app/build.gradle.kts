@@ -12,14 +12,14 @@ if (keystorePropertiesFile.exists()) {
 
 android {
     namespace = "com.wifivpn.app"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.wifivpn.app"
         minSdk = 26
-        targetSdk = 36
-        versionCode = 26
-        versionName = "1.4.10"
+        targetSdk = 37
+        versionCode = 28
+        versionName = "1.4.12"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -85,7 +85,6 @@ dependencies {
     implementation(libs.androidx.constraintlayout)
     implementation(libs.androidx.recyclerview)
     implementation(libs.androidx.activity.ktx)
-    implementation(libs.androidx.documentfile)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.service)
     implementation(libs.androidx.datastore.preferences)

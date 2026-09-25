@@ -16,7 +16,10 @@ import com.wifivpn.app.MainActivity
 import com.wifivpn.app.R
 import com.wifivpn.app.WifiVpnApp
 import com.wifivpn.app.log.DiagnosticSupport
+import com.wifivpn.app.log.LogRedactor
+import com.wifivpn.app.network.LocalNetwork
 import com.wifivpn.app.network.WifiConnectivityMonitor
+import com.wifivpn.app.permission.BackgroundLocation
 import com.wifivpn.app.tile.MonitorTileService
 import com.wifivpn.app.util.InternalIntentAuth
 import com.wifivpn.app.util.InternalIntentAuth.putInternalAuth
@@ -48,7 +51,7 @@ import kotlinx.coroutines.sync.withLock
 class WifiMonitorService : LifecycleService() {
 
     private val app get() = application as WifiVpnApp
-    private lateinit var wifiMonitor: WifiConnectivityMonitor
+    private val wifiMonitor: WifiConnectivityMonitor get() = app.wifiMonitor
     private var monitorJob: Job? = null
     /** Polls WireGuard transfer stats while the tunnel is up (feeds UI flow + widgets). */
     private var statsPollJob: Job? = null
@@ -65,12 +68,17 @@ class WifiMonitorService : LifecycleService() {
     private var lastPeerHealthCheckAtElapsedMs: Long = 0L
     /** True while a dead-peer reconnect is in progress (avoids overlapping reconnects). */
     private var peerReconnectInFlight: Boolean = false
+    /**
+     * Whether this service currently has location access. Without it the platform hides the
+     * SSID, BSSID and network id, so trusted Wi‑Fi cannot be recognised.
+     */
+    @Volatile
+    private var locationAccess: Boolean = false
     /** Serializes all VPN policy decisions (Wi‑Fi flow + trusted-list updates). */
     private val policyMutex = Mutex()
 
     override fun onCreate() {
         super.onCreate()
-        wifiMonitor = WifiConnectivityMonitor(this)
         instance = this
         Log.i(TAG, "Service created")
         app.diagnosticLogger.i(CAT_MONITOR, "service created")
@@ -98,7 +106,7 @@ class WifiMonitorService : LifecycleService() {
     }
 
     private fun startMonitoring(source: String) {
-        startAsForeground(getString(R.string.notification_waiting))
+        startAsForeground(getString(R.string.notification_waiting), source)
 
         if (monitorJob?.isActive == true) {
             app.diagnosticLogger.i(
@@ -134,7 +142,11 @@ class WifiMonitorService : LifecycleService() {
             app.diagnosticLogger.i(
                 CAT_MONITOR,
                 "trusted_ssids=${initialTrusted.size} assoc_memory=${associations.size} " +
-                    "keys=${associations.keys.joinToString(",").ifEmpty { "none" }}"
+                    "keys=${
+                        associations.keys.joinToString(",") {
+                            LogRedactor.assoc(this@WifiMonitorService, it)
+                        }.ifEmpty { "none" }
+                    }"
             )
             DiagnosticSupport.logSupportSummary(app, "monitor_start source=$source")
 
@@ -257,7 +269,7 @@ class WifiMonitorService : LifecycleService() {
                     app.diagnosticLogger.i(
                         CAT_VPN,
                         "VPN off (trusted Wi‑Fi) result=success wasUp=$wasUp " +
-                            "match=${snap.trustedMatch} ssid=${snap.ssid ?: "unknown"}"
+                            "match=${snap.trustedMatch} ssid=${LogRedactor.ssid(this, snap.ssid)}"
                     )
                 } else {
                     app.diagnosticLogger.logException(
@@ -270,7 +282,7 @@ class WifiMonitorService : LifecycleService() {
             } else {
                 app.diagnosticLogger.i(
                     CAT_VPN,
-                    "VPN already off on trusted Wi‑Fi ssid=${snap.ssid ?: "unknown"} " +
+                    "VPN already off on trusted Wi‑Fi ssid=${LogRedactor.ssid(this, snap.ssid)} " +
                         "match=${snap.trustedMatch}"
                 )
             }
@@ -322,9 +334,11 @@ class WifiMonitorService : LifecycleService() {
      * When Wi‑Fi is associated but SSID is still redacted/unknown, poll for the name
      * before treating the network as untrusted.
      *
-     * After reboot/app-update, Android often withholds SSID for a long time even with
-     * location permission — **do not** force VPN on while Wi‑Fi stays associated;
-     * wait until the name is known or Wi‑Fi drops (then VPN-on for no-Wi‑Fi is correct).
+     * After reboot/app-update Android often withholds SSID for many seconds, so the wait
+     * is longer for those sources. It is still **bounded**: on timeout we fail closed and
+     * let the caller bring the VPN up, because an unidentifiable network must be assumed
+     * hostile. [maybeStartUnknownSsidWatch] keeps looking afterwards and drops the tunnel
+     * as soon as a trusted name appears.
      */
     private suspend fun resolveSsidBeforeVpnUp(
         snap: WifiConnectivityMonitor.WifiSnapshot
@@ -337,11 +351,15 @@ class WifiMonitorService : LifecycleService() {
             return snap
         }
 
-        // Boot/update: wait until SSID is known or Wi‑Fi disconnects (no untrusted timeout).
-        val waitUntilResolved =
-            startSource == SOURCE_BOOT || startSource == SOURCE_UPDATE
-        val maxWaitMs = if (waitUntilResolved) Long.MAX_VALUE else SSID_RESOLVE_MAX_MS
-        val resolving = getString(R.string.notification_resolving_ssid)
+        val afterRestart = startSource == SOURCE_BOOT || startSource == SOURCE_UPDATE
+        val maxWaitMs = if (afterRestart) SSID_RESOLVE_BOOT_MAX_MS else SSID_RESOLVE_MAX_MS
+        val resolving = getString(
+            if (locationAccess) {
+                R.string.notification_resolving_ssid
+            } else {
+                R.string.notification_resolving_ssid_no_location
+            }
+        )
         _uiState.value = _uiState.value.copy(
             wifiConnected = true,
             onTrustedWifi = false,
@@ -355,17 +373,12 @@ class WifiMonitorService : LifecycleService() {
         app.diagnosticLogger.i(
             CAT_VPN,
             "defer VPN up — Wi‑Fi up but SSID unknown " +
-                "(poll ${SSID_RESOLVE_POLL_MS}ms " +
-                if (waitUntilResolved) {
-                    "until SSID known or Wi‑Fi drops source=$startSource)"
-                } else {
-                    "up to ${maxWaitMs}ms source=$startSource)"
-                }
+                "(poll ${SSID_RESOLVE_POLL_MS}ms up to ${maxWaitMs}ms source=$startSource)"
         )
 
         var elapsed = 0L
         var current = snap
-        while (waitUntilResolved || elapsed < maxWaitMs) {
+        while (elapsed < maxWaitMs) {
             delay(SSID_RESOLVE_POLL_MS)
             elapsed += SSID_RESOLVE_POLL_MS
             current = wifiMonitor.snapshot(wifiMonitor.getTrustedSsids())
@@ -379,7 +392,7 @@ class WifiMonitorService : LifecycleService() {
             if (current.ssid != null) {
                 app.diagnosticLogger.i(
                     CAT_VPN,
-                    "SSID resolved after ${elapsed}ms ssid=${current.ssid} " +
+                    "SSID resolved after ${elapsed}ms ssid=${LogRedactor.ssid(this, current.ssid)} " +
                         "trusted=${current.onTrustedWifi} from_cache=${current.ssidFromCache}"
                 )
                 return current
@@ -396,7 +409,7 @@ class WifiMonitorService : LifecycleService() {
         }
         app.diagnosticLogger.w(
             CAT_VPN,
-            "SSID still unknown after ${maxWaitMs}ms — treating as untrusted"
+            "SSID still unknown after ${maxWaitMs}ms — failing closed, treating as untrusted"
         )
         return current
     }
@@ -428,8 +441,9 @@ class WifiMonitorService : LifecycleService() {
                 if (latest.ssid != null) {
                     app.diagnosticLogger.i(
                         CAT_VPN,
-                        "SSID watch resolved ssid=${latest.ssid} " +
-                            "trusted=${latest.onTrustedWifi} — re-applying policy"
+                        "SSID watch resolved ssid=" +
+                            LogRedactor.ssid(this@WifiMonitorService, latest.ssid) +
+                            " trusted=${latest.onTrustedWifi} — re-applying policy"
                     )
                     applyWifiDecision(latest)
                     break
@@ -444,26 +458,26 @@ class WifiMonitorService : LifecycleService() {
     }
 
     /**
-     * When we have a live (not association-memory) trusted SSID, store networkId/BSSID → name
-     * so reboot policy works while Android still redacts SSID in the background.
+     * When we have a live (not association-memory) trusted SSID, store every identity key
+     * the platform exposes (BSSID and networkId) so reboot policy works while Android
+     * still redacts SSID in the background.
      */
     private fun rememberTrustedAssociationIfLive(snap: WifiConnectivityMonitor.WifiSnapshot) {
         if (!snap.onTrustedWifi) return
         val ssid = snap.ssid ?: return
         // Only persist when we actually read the name from the platform (not our memory).
-        if (snap.trustedMatch == "assoc_memory" ||
-            snap.trustedMatch == "assoc_memory_sole"
-        ) {
-            return
-        }
-        val assocKey = wifiMonitor.currentAssociationKey() ?: return
+        if (snap.trustedMatch == WifiConnectivityMonitor.MATCH_ASSOC_MEMORY) return
+        val assocKeys = wifiMonitor.currentAssociationKeys()
+        if (assocKeys.isEmpty()) return
         lifecycleScope.launch {
-            app.configRepository.rememberTrustedWifiAssociation(assocKey, ssid)
+            app.configRepository.rememberTrustedWifiAssociations(assocKeys, ssid)
             val updated = app.configRepository.getTrustedWifiAssociations()
             wifiMonitor.setTrustedAssociations(updated)
             app.diagnosticLogger.i(
                 CAT_VPN,
-                "remembered trusted association key=$assocKey ssid=$ssid " +
+                "remembered trusted association keys=" +
+                    assocKeys.joinToString(",") { LogRedactor.assoc(this@WifiMonitorService, it) } +
+                    " ssid=${LogRedactor.ssid(this@WifiMonitorService, ssid)} " +
                     "mapSize=${updated.size}"
             )
         }
@@ -475,9 +489,9 @@ class WifiMonitorService : LifecycleService() {
             snap.onTrustedWifi -> "trusted"
             else -> "other"
         }
-        val ssidPart = snap.ssid?.let { "ssid=\"$it\"" } ?: "ssid=unknown"
+        val ssidPart = "ssid=${LogRedactor.ssid(this, snap.ssid)}"
         val decision = if (snap.onTrustedWifi) "VPN_OFF" else "VPN_ON"
-        val assocKey = wifiMonitor.currentAssociationKey() ?: "none"
+        val assocKey = LogRedactor.assoc(this, wifiMonitor.currentAssociationKey())
         val memSize = wifiMonitor.getTrustedAssociations().size
         app.diagnosticLogger.i(
             CAT_NETWORK,
@@ -526,7 +540,8 @@ class WifiMonitorService : LifecycleService() {
                 CAT_VPN,
                 "VPN already on with live handshake — no reconnect " +
                     "(wifi=${if (snap.wifiConnected) "up" else "down"} " +
-                    "ssid=${snap.ssid ?: "none"} cellular=${if (snap.cellularConnected) "up" else "down"})"
+                    "ssid=${LogRedactor.ssid(this, snap.ssid)} " +
+                    "cellular=${if (snap.cellularConnected) "up" else "down"})"
             )
             return
         }
@@ -553,7 +568,7 @@ class WifiMonitorService : LifecycleService() {
                 "handshakeWaitSec=${PEER_HANDSHAKE_WAIT_MS / 1000} " +
                 "excludedApps=${excluded.size} " +
                 "reason=${if (!snap.wifiConnected) "no_wifi" else "untrusted_wifi"} " +
-                "config ${DiagnosticSupport.configFingerprint(config)}"
+                "config ${DiagnosticSupport.configFingerprint(this, config)}"
         )
 
         for (attempt in 1..maxAttempts) {
@@ -654,11 +669,21 @@ class WifiMonitorService : LifecycleService() {
             }
         }
 
-        val finalMsg = getString(
-            R.string.vpn_connect_failed,
-            maxAttempts,
-            WireGuardManager.formatError(lastError)
-        )
+        val finalMsg = if (
+            LocalNetwork.blocksConfig(this, app.wireGuardManager.parseConfig(config).getOrNull())
+        ) {
+            app.diagnosticLogger.w(
+                CAT_VPN,
+                "connect failures likely caused by missing ACCESS_LOCAL_NETWORK (LAN peer endpoint)"
+            )
+            getString(R.string.vpn_connect_failed_local_network)
+        } else {
+            getString(
+                R.string.vpn_connect_failed,
+                maxAttempts,
+                WireGuardManager.formatError(lastError)
+            )
+        }
         _uiState.value = _uiState.value.copy(vpnActive = false, message = finalMsg)
         updateNotification(finalMsg)
         stopStatsPolling()
@@ -850,7 +875,7 @@ class WifiMonitorService : LifecycleService() {
             "monitoring stopped vpnWasUp=$wasUp " +
                 "vpnDown=${if (downResult.isSuccess) "ok" else "fail"} " +
                 "wifi=${if (snap.wifiConnected) "up" else "down"} " +
-                "ssid=${snap.ssid ?: "none"}"
+                "ssid=${LogRedactor.ssid(this, snap.ssid)}"
         )
     }
 
@@ -908,16 +933,18 @@ class WifiMonitorService : LifecycleService() {
         app.wireGuardManager.clearTransferStats()
     }
 
-    private fun startAsForeground(content: String) {
+    private fun startAsForeground(content: String, source: String) {
         lastNotificationContent = content
         val notification = buildNotification(content)
         // location: SSID is location-sensitive; keeps reads working with screen off while
         // the monitor FGS is running (while-in-use location permission is enough).
         // specialUse: declared purpose of continuous Wi‑Fi / VPN policy monitoring (API 34+).
-        // Note: location FGS cannot start from background (e.g. raw TileService) on API 34+
-        // without ACCESS_BACKGROUND_LOCATION — callers should start from an Activity.
+        // A location FGS started from the background (boot, update, system restart) only
+        // gets location access with ACCESS_BACKGROUND_LOCATION.
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             startForeground(WifiVpnApp.NOTIFICATION_ID, notification)
+            locationAccess = true
+            logLocationAccess(source)
             return
         }
 
@@ -936,8 +963,14 @@ class WifiMonitorService : LifecycleService() {
                 notification,
                 locationAndSpecial
             )
+            // API 29–33 accept the type from the background but still withhold location.
+            val fromBackground = source == SOURCE_BOOT ||
+                source == SOURCE_UPDATE ||
+                source == SOURCE_UNKNOWN
+            locationAccess = !fromBackground || BackgroundLocation.isGranted(this)
         } catch (e: SecurityException) {
             Log.w(TAG, "FGS location type rejected, falling back to specialUse: ${e.message}")
+            locationAccess = false
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 try {
                     ServiceCompat.startForeground(
@@ -946,14 +979,48 @@ class WifiMonitorService : LifecycleService() {
                         notification,
                         ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
                     )
-                    return
                 } catch (e2: SecurityException) {
                     Log.e(TAG, "FGS specialUse also rejected", e2)
                     throw e2
                 }
+            } else {
+                throw e
             }
-            throw e
         }
+        logLocationAccess(source)
+    }
+
+    private fun logLocationAccess(source: String) {
+        if (locationAccess) {
+            app.diagnosticLogger.i(CAT_MONITOR, "location access=ok source=$source")
+        } else {
+            app.diagnosticLogger.w(
+                CAT_MONITOR,
+                "location access=none source=$source " +
+                    "bgloc=${if (BackgroundLocation.isGranted(this)) "ok" else "no"} " +
+                    "— Wi‑Fi name hidden until the app is opened"
+            )
+        }
+    }
+
+    /**
+     * Re-requests the location FGS type while one of our activities is visible, so a monitor
+     * started after boot keeps location access — and a readable SSID — after the user leaves.
+     *
+     * @return true when the service was running without location access before this call.
+     */
+    fun regainLocationAccessIfNeeded(): Boolean {
+        if (locationAccess || monitorJob?.isActive != true) return false
+        startAsForeground(
+            lastNotificationContent ?: getString(R.string.notification_monitoring),
+            SOURCE_UI
+        )
+        if (locationAccess) {
+            lifecycleScope.launch {
+                applyWifiDecision(wifiMonitor.snapshot(wifiMonitor.getTrustedSsids()))
+            }
+        }
+        return true
     }
 
     /** Last posted notification text — skip identical updates (less binder noise). */
@@ -1051,10 +1118,16 @@ class WifiMonitorService : LifecycleService() {
         private const val SSID_RESOLVE_POLL_MS = 1_000L
 
         /**
-         * Max time to wait for SSID before treating Wi‑Fi as untrusted (manual/UI start only).
-         * Boot/update wait until SSID is known or Wi‑Fi drops (no untrusted timeout).
+         * Max time to wait for SSID before treating Wi‑Fi as untrusted (manual/UI start).
          */
         private const val SSID_RESOLVE_MAX_MS = 15_000L
+
+        /**
+         * Longer cap after reboot / app update, where Android withholds SSID for much
+         * longer. Bounded on purpose: waiting forever would leave traffic unprotected on
+         * a network we cannot identify.
+         */
+        private const val SSID_RESOLVE_BOOT_MAX_MS = 90_000L
 
         /**
          * If VPN was brought up while SSID was still unknown, re-check this often
@@ -1105,12 +1178,7 @@ class WifiMonitorService : LifecycleService() {
                 .putExtra(EXTRA_START_SOURCE, source)
 
         fun start(context: Context, source: String = SOURCE_UNKNOWN) {
-            val intent = startIntent(context, source)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
-            }
+            context.startForegroundService(startIntent(context, source))
         }
 
         fun stop(context: Context, source: String = SOURCE_UNKNOWN) {

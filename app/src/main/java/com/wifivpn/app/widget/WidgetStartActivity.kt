@@ -8,9 +8,9 @@ import androidx.lifecycle.lifecycleScope
 import com.wifivpn.app.ConfigurationActivity
 import com.wifivpn.app.MainActivity
 import com.wifivpn.app.WifiVpnApp
-import com.wifivpn.app.network.WifiConnectivityMonitor
 import com.wifivpn.app.service.WifiMonitorService
 import com.wifivpn.app.tile.MonitorTileService
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -32,6 +32,8 @@ class WidgetStartActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 startMonitoringFromWidget()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Widget start failed", e)
                 app.diagnosticLogger.logException("UI", "Widget start monitoring failed", e)
@@ -58,7 +60,7 @@ class WidgetStartActivity : AppCompatActivity() {
             return
         }
 
-        val wifiMonitor = WifiConnectivityMonitor(this)
+        val wifiMonitor = app.wifiMonitor
         if (!wifiMonitor.hasSsidPermission()) {
             openMainApp()
             return

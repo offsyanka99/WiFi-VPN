@@ -4,9 +4,12 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.util.Base64
 import android.util.Log
+import androidx.core.content.edit
 import java.nio.ByteBuffer
+import java.security.GeneralSecurityException
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -18,18 +21,36 @@ import javax.crypto.spec.GCMParameterSpec
  *
  * Uses the Android Keystore AES-GCM key + ordinary [SharedPreferences] for ciphertext.
  * Replaces deprecated Jetpack [androidx.security.crypto.EncryptedSharedPreferences];
- * existing ESP values are migrated once on first open.
+ * existing ESP values are migrated once by [migrateLegacyIfNeeded].
+ *
+ * Nothing touches the Keystore or disk until the first read/write, so constructing this
+ * from `Application.onCreate` does not block the main thread.
  */
 class SecureConfigStore(context: Context) {
 
-    private val appContext = context.applicationContext
-    private val prefs: SharedPreferences =
-        appContext.getSharedPreferences(PREFS_NAME_V2, Context.MODE_PRIVATE)
+    /** Whether the stored ciphertext could be decrypted on the last attempt. */
+    enum class ConfigState {
+        /** Config present and readable. */
+        OK,
 
-    init {
-        ensureKey()
-        migrateFromEncryptedSharedPreferencesIfNeeded()
+        /** Nothing stored yet. */
+        EMPTY,
+
+        /** Ciphertext present but undecryptable (Keystore key lost or blob corrupt). */
+        UNREADABLE
     }
+
+    private val appContext = context.applicationContext
+    private val prefs: SharedPreferences by lazy {
+        appContext.getSharedPreferences(PREFS_NAME_V2, Context.MODE_PRIVATE)
+    }
+
+    @Volatile
+    private var cachedKey: SecretKey? = null
+
+    /** Sticky until a successful read, write, or clear. */
+    @Volatile
+    private var readFailure: Boolean = false
 
     var config: String
         get() = read(KEY_CONFIG).orEmpty()
@@ -43,16 +64,31 @@ class SecureConfigStore(context: Context) {
             write(KEY_FILE_NAME, value)
         }
 
+    /**
+     * Reads the config once and reports whether it is usable. Callers must prefer this
+     * over `config.isBlank()` so an invalidated Keystore key is not mistaken for
+     * "user never imported a config".
+     */
+    fun state(): ConfigState {
+        val value = read(KEY_CONFIG)
+        return when {
+            readFailure -> ConfigState.UNREADABLE
+            value.isNullOrBlank() -> ConfigState.EMPTY
+            else -> ConfigState.OK
+        }
+    }
+
     fun set(config: String, fileName: String) {
         write(KEY_CONFIG, config)
         write(KEY_FILE_NAME, fileName)
     }
 
     fun clear() {
-        prefs.edit()
-            .remove(KEY_CONFIG)
-            .remove(KEY_FILE_NAME)
-            .apply()
+        prefs.edit {
+            remove(KEY_CONFIG)
+            remove(KEY_FILE_NAME)
+        }
+        readFailure = false
     }
 
     fun isEmpty(): Boolean = config.isBlank()
@@ -61,16 +97,28 @@ class SecureConfigStore(context: Context) {
         val blob = prefs.getString(key, null) ?: return null
         if (blob.isEmpty()) return ""
         return try {
-            decrypt(blob)
+            decrypt(blob).also { readFailure = false }
+        } catch (e: KeyPermanentlyInvalidatedException) {
+            // Lock-screen credential reset / restore to a new device destroys the key.
+            Log.e(TAG, "Keystore key invalidated — $key can no longer be decrypted", e)
+            cachedKey = null
+            readFailure = true
+            null
+        } catch (e: GeneralSecurityException) {
+            Log.e(TAG, "Decrypt failed for $key", e)
+            readFailure = true
+            null
         } catch (e: Exception) {
             Log.e(TAG, "Decrypt failed for $key", e)
+            readFailure = true
             null
         }
     }
 
     private fun write(key: String, value: String) {
         val encoded = encrypt(value)
-        prefs.edit().putString(key, encoded).apply()
+        prefs.edit { putString(key, encoded) }
+        readFailure = false
     }
 
     private fun encrypt(plain: String): String {
@@ -102,12 +150,18 @@ class SecureConfigStore(context: Context) {
     }
 
     private fun secretKey(): SecretKey {
-        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
-        val existing = keyStore.getEntry(KEY_ALIAS, null) as? KeyStore.SecretKeyEntry
-        if (existing != null) return existing.secretKey
-        ensureKey()
-        val created = keyStore.getEntry(KEY_ALIAS, null) as KeyStore.SecretKeyEntry
-        return created.secretKey
+        cachedKey?.let { return it }
+        synchronized(this) {
+            cachedKey?.let { return it }
+            val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+            val existing = keyStore.getEntry(KEY_ALIAS, null) as? KeyStore.SecretKeyEntry
+            val key = existing?.secretKey ?: run {
+                ensureKey()
+                (keyStore.getEntry(KEY_ALIAS, null) as KeyStore.SecretKeyEntry).secretKey
+            }
+            cachedKey = key
+            return key
+        }
     }
 
     private fun ensureKey() {
@@ -124,6 +178,7 @@ class SecureConfigStore(context: Context) {
             .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
             .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
             .setKeySize(256)
+            .setRandomizedEncryptionRequired(true)
             .setUserAuthenticationRequired(false)
             .build()
         keyGenerator.init(spec)
@@ -133,9 +188,10 @@ class SecureConfigStore(context: Context) {
     /**
      * One-time copy from Jetpack EncryptedSharedPreferences into the Keystore-backed store.
      * Safe to call repeatedly; no-ops when v2 already has data or legacy store is empty.
+     * Call off the main thread — opening the legacy store initialises Tink.
      */
     @Suppress("DEPRECATION")
-    private fun migrateFromEncryptedSharedPreferencesIfNeeded() {
+    fun migrateLegacyIfNeeded() {
         if (prefs.contains(KEY_CONFIG) || prefs.contains(KEY_FILE_NAME)) return
         val legacyXml = java.io.File(appContext.applicationInfo.dataDir, "shared_prefs/$PREFS_NAME_LEGACY.xml")
         if (!legacyXml.exists()) return
@@ -161,7 +217,8 @@ class SecureConfigStore(context: Context) {
             if (!legacyFileName.isNullOrBlank()) {
                 write(KEY_FILE_NAME, legacyFileName)
             }
-            legacy.edit().clear().apply()
+            // `this` is the Editor; bare clear() would read as SecureConfigStore.clear().
+            legacy.edit { this.clear() }
             Log.i(TAG, "Migrated WireGuard secrets from EncryptedSharedPreferences to Keystore store")
         } catch (e: Exception) {
             // Missing legacy store or unreadable ESP — keep empty v2 store

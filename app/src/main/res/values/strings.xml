@@ -9,6 +9,7 @@
     <string name="notification_wifi_lost">No Wi‑Fi — VPN active</string>
     <string name="notification_waiting">Monitoring Wi‑Fi…</string>
     <string name="notification_resolving_ssid">Resolving Wi‑Fi name…</string>
+    <string name="notification_resolving_ssid_no_location">Wi‑Fi name hidden after restart — open the app, or allow location “All the time”</string>
     <string name="notification_monitoring">Monitoring…</string>
     <string name="notification_monitoring_stopped">Monitoring stopped</string>
     <string name="notification_error">Error: %1$s</string>
@@ -16,6 +17,7 @@
     <string name="vpn_retrying">VPN connect failed — retry %1$d/%2$d in %3$ds…</string>
     <string name="vpn_retry_attempt">Connecting VPN (attempt %1$d of %2$d)…</string>
     <string name="vpn_connect_failed">VPN failed after %1$d attempts: %2$s</string>
+    <string name="vpn_connect_failed_local_network">VPN server is on a local network address and Android is blocking it. Allow “Nearby devices” for WiFi VPN in system settings.</string>
     <string name="vpn_waiting_handshake">Waiting for peer handshake… (%1$ds)</string>
     <string name="vpn_handshake_timeout">No peer handshake</string>
     <!-- Peer liveness: handshake too old → auto-reconnect (main UI, notification, widgets) -->
@@ -34,8 +36,10 @@
     <string name="notification_permission_check_title">WiFi VPN permissions</string>
     <string name="notification_permission_check_body">These were disabled or missing:\n%1$s\n\nOpen the app to fix them.</string>
     <string name="perm_issue_location">Location / nearby Wi‑Fi (needed to read network names)</string>
+    <string name="perm_issue_background_location">Location “All the time” (needed to recognise trusted Wi‑Fi after a reboot)</string>
     <string name="perm_issue_notifications">Notifications</string>
     <string name="perm_issue_vpn">VPN permission</string>
+    <string name="perm_issue_local_network">Nearby devices (needed to reach a VPN server on a local network address)</string>
     <string name="perm_issue_battery">Battery optimization exemption (background usage)</string>
 
     <string name="status_wifi_trusted">Wi‑Fi: trusted (%1$s)</string>
@@ -61,6 +65,7 @@
     <string name="label_wg_config">WireGuard config</string>
     <string name="config_not_loaded">No config file loaded</string>
     <string name="config_loaded">Loaded: %1$s</string>
+    <string name="config_unreadable">Saved config can no longer be decrypted — load the .conf file again</string>
     <string name="btn_load_config">Load config file…</string>
     <string name="btn_clear_config">Clear config</string>
     <string name="btn_start_monitoring">Start monitoring</string>
@@ -93,6 +98,7 @@
     <string name="msg_config_saved">Config loaded</string>
     <string name="msg_config_cleared">Config cleared</string>
     <string name="msg_config_empty">Load a WireGuard .conf file first</string>
+    <string name="msg_config_unreadable">The saved config could not be decrypted (device security keys changed). Open Configuration and load the .conf file again.</string>
     <string name="msg_config_invalid">Invalid WireGuard config: %1$s</string>
     <string name="msg_config_too_large">Config file is too large (max %1$d KB)</string>
     <string name="msg_config_read_failed">Could not read file: %1$s</string>
@@ -112,6 +118,16 @@
     <string name="auto_start_help">When enabled, monitoring starts in the background after the phone reboots (requires config and trusted Wi‑Fi).</string>
     <string name="msg_auto_start_on">Auto-start enabled</string>
     <string name="msg_auto_start_off">Auto-start disabled</string>
+    <string name="dialog_background_location_title">Recognise trusted Wi‑Fi after reboot?</string>
+    <string name="dialog_background_location_message">After a reboot, Android hides the Wi‑Fi name from apps that only have location “While using the app”. WiFi VPN then cannot tell your trusted network apart and turns the VPN on until you open the app.\n\nChoose “Allow all the time” on the next screen to fix this. The app only uses it to read the Wi‑Fi name — your location is never stored or sent anywhere.</string>
+    <string name="btn_background_location_allow">Continue</string>
+    <string name="btn_background_location_later">Not now</string>
+    <string name="msg_background_location_denied">Without “All the time”, open the app once after each reboot to recognise trusted Wi‑Fi</string>
+    <string name="label_background_location">Location all the time</string>
+    <string name="label_enable_background_location">Allow location all the time</string>
+    <string name="background_location_summary">Recognises trusted Wi‑Fi after a reboot without opening the app.</string>
+    <string name="background_location_help">Android hides the Wi‑Fi name from apps that only have location “While using the app” whenever they run in the background without having been opened — for example right after a reboot with auto-start on.\n\nWithout this permission, WiFi VPN cannot tell your trusted Wi‑Fi apart after a reboot. For safety it treats the network as untrusted and turns the VPN on until you open the app once.\n\nWith “Allow all the time”, the trusted network is recognised immediately after a reboot.\n\nLocation is only used to read the Wi‑Fi name. Your position is never stored, logged or sent anywhere.\n\nThis switch shows the current Android setting. Turning it off opens the app’s system settings, where you can change location to “While using the app”.</string>
+    <string name="msg_background_location_revoke">Open Permissions → Location and choose “Allow only while using the app”</string>
     <string name="label_battery_optimization">Battery optimization</string>
     <string name="battery_optimization_help">When on, the app is exempt from battery optimization (Allow background usage) so monitoring is less likely to be stopped.</string>
     <string name="msg_battery_opt_on">Battery optimization exemption requested</string>
@@ -151,6 +167,9 @@
     <string name="msg_diagnostic_log_disabled_deleted">Diagnostic logging disabled — log file deleted</string>
     <string name="dialog_disable_diagnostic_log_title">Disable diagnostic logging?</string>
     <string name="dialog_disable_diagnostic_log_message">Delete the log file from this device, or keep it for later?</string>
+    <string name="dialog_diagnostic_share_title">Send this log?</string>
+    <string name="dialog_diagnostic_share_message">The log leaves your device. It contains your app version, phone model, Android version, permission and battery settings, VPN connect/disconnect times, and error details.\n\nNetwork names, access point addresses and your VPN server address are replaced with per-device codes, so they cannot be traced back to you. Private keys, the config file itself, and your installed apps are never included.\n\nYou can review the file before sending it in your email app.</string>
+    <string name="btn_diagnostic_share_accept">Send</string>
     <string name="btn_delete_log">Delete log</string>
     <string name="btn_keep_log">Keep log</string>
     <string name="btn_cancel">Cancel</string>

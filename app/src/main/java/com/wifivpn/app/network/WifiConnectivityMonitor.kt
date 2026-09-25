@@ -137,6 +137,27 @@ class WifiConnectivityMonitor(private val context: Context) {
     fun currentAssociationKey(): String? = wifiAssociationKey()
 
     /**
+     * Every identity key the platform currently exposes for this association, BSSID first.
+     *
+     * Both kinds are persisted and matched: `networkId` is only an index into the saved
+     * network list, so it is reused when networks are added/removed and can alias a
+     * different SSID. BSSID does not alias but changes when roaming within a mesh.
+     */
+    @Suppress("DEPRECATION")
+    fun currentAssociationKeys(): List<String> {
+        val keys = LinkedHashSet<String>()
+        keys += associationKeysFromWifiInfo(runCatching { wifiManager.connectionInfo }.getOrNull())
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            for (network in candidateNetworks()) {
+                val caps = connectivityManager.getNetworkCapabilities(network) ?: continue
+                if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) continue
+                keys += associationKeysFromWifiInfo(wifiInfoFrom(caps))
+            }
+        }
+        return keys.toList()
+    }
+
+    /**
      * Start low-rate location updates so platform SSID APIs treat us as location-active.
      * Required after BOOT_COMPLETED: without this, SSID stays redacted until the UI opens.
      */
@@ -432,9 +453,9 @@ class WifiConnectivityMonitor(private val context: Context) {
     private fun ingestCallbackCapabilities(network: Network, caps: NetworkCapabilities) {
         knownNetworks.add(network)
         if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) return
-        val ssid = ssidFromCapabilities(caps) ?: return
-        val key = associationKeyFromWifiInfo(caps.transportInfo as? WifiInfo)
-            ?: wifiAssociationKey()
+        val info = wifiInfoFrom(caps) ?: return
+        val ssid = normalizeSsid(info.ssid) ?: return
+        val key = associationKeyFromWifiInfo(info) ?: wifiAssociationKey()
         callbackSsid = ssid
         callbackAssociationKey = key
         if (key != null) {
@@ -451,14 +472,14 @@ class WifiConnectivityMonitor(private val context: Context) {
         callbackAssociationKey = null
     }
 
-    private fun ssidFromCapabilities(caps: NetworkCapabilities): String? {
+    /** [NetworkCapabilities.getTransportInfo] only carries [WifiInfo] from API 29. */
+    private fun wifiInfoFrom(caps: NetworkCapabilities): WifiInfo? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
-        val transport = caps.transportInfo
-        if (transport is WifiInfo) {
-            return normalizeSsid(transport.ssid)
-        }
-        return null
+        return caps.transportInfo as? WifiInfo
     }
+
+    private fun ssidFromCapabilities(caps: NetworkCapabilities): String? =
+        normalizeSsid(wifiInfoFrom(caps)?.ssid)
 
     @Suppress("DEPRECATION")
     private fun ssidFromWifiManager(): String? {
@@ -473,7 +494,7 @@ class WifiConnectivityMonitor(private val context: Context) {
     /**
      * Stable key for the current Wi‑Fi association (`nid:…` or `bssid:…`).
      * Best-effort after boot when SSID is redacted — networkId may still be present, or
-     * only BSSID, or neither (then [resolveFromAssociationMemory] uses sole-SSID fallback).
+     * only BSSID, or neither (then the network cannot be identified and is untrusted).
      */
     @Suppress("DEPRECATION")
     private fun wifiAssociationKey(): String? {
@@ -485,7 +506,7 @@ class WifiConnectivityMonitor(private val context: Context) {
             for (network in candidateNetworks()) {
                 val caps = connectivityManager.getNetworkCapabilities(network) ?: continue
                 if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) continue
-                val info = caps.transportInfo as? WifiInfo
+                val info = wifiInfoFrom(caps)
                 associationKeyFromWifiInfo(info)?.let { return it }
             }
         }
@@ -501,7 +522,7 @@ class WifiConnectivityMonitor(private val context: Context) {
             }
             val bssid = info.bssid
             if (!bssid.isNullOrBlank() &&
-                !bssid.equals("02:00:00:00:00:00", ignoreCase = true)
+                !bssid.equals(REDACTED_BSSID, ignoreCase = true)
             ) {
                 return "bssid:${bssid.lowercase()}"
             }
@@ -511,12 +532,36 @@ class WifiConnectivityMonitor(private val context: Context) {
         }
     }
 
+    /** BSSID first: it identifies a real AP, whereas `networkId` is a reusable index. */
+    @Suppress("DEPRECATION")
+    private fun associationKeysFromWifiInfo(info: WifiInfo?): List<String> {
+        if (info == null) return emptyList()
+        return try {
+            buildList {
+                val bssid = info.bssid
+                if (!bssid.isNullOrBlank() &&
+                    !bssid.equals(REDACTED_BSSID, ignoreCase = true)
+                ) {
+                    add("bssid:${bssid.lowercase()}")
+                }
+                if (info.networkId != -1) {
+                    add("nid:${info.networkId}")
+                }
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
     /**
      * When live SSID is redacted, recover a trusted name from persisted association memory.
      *
-     * 1. Exact key match (`nid:16` → `U6`) when the platform still exposes networkId/BSSID.
-     * 2. **Sole remembered trusted SSID** when the key is also redacted (common after
-     *    BOOT_COMPLETED on Pixel) — safe when the user has a single home network in memory.
+     * Requires a **positive** identity match (`bssid:` or `nid:`) against a remembered
+     * trusted network. If the platform redacts SSID *and* every association key, this
+     * returns null and the caller must treat the network as untrusted (VPN on).
+     *
+     * Deliberately has no "only one network is remembered, so assume it" fallback: that
+     * fails **open**, disabling the VPN on exactly the hostile networks it guards against.
      *
      * @return pair of (ssid, trustedMatch label) or null
      */
@@ -526,34 +571,12 @@ class WifiConnectivityMonitor(private val context: Context) {
         val map = trustedAssociationsRef.get()
         if (map.isEmpty() || trustedSsids.isEmpty()) return null
 
-        val assocKey = wifiAssociationKey()
-        if (assocKey != null) {
-            // Positive key match only. Unknown key (e.g. cafe nid while memory has home)
-            // must NOT fall through to sole-SSID — that would fail open (VPN off off-trusted).
-            val byKey = map[assocKey]
-                ?: map.entries.firstOrNull { it.key.equals(assocKey, ignoreCase = true) }?.value
-            val name = byKey?.let { ConfigRepository.normalizeSsid(it) }
-            if (name != null && trustedSsids.any { it.equals(name, ignoreCase = true) }) {
-                return name to "assoc_memory"
-            }
-            return null
-        }
-
-        // Association key also redacted (common after BOOT_COMPLETED). Only then, if every
-        // memory entry points at one trusted SSID, use it — never when a live key is known.
-        val trustedRemembered = map.values
-            .mapNotNull { ConfigRepository.normalizeSsid(it) }
-            .distinctBy { it.lowercase() }
-            .filter { rem -> trustedSsids.any { it.equals(rem, ignoreCase = true) } }
-
-        if (trustedRemembered.size == 1) {
-            return trustedRemembered.first() to "assoc_memory_sole"
-        }
-
-        if (trustedSsids.size == 1) {
-            val only = ConfigRepository.normalizeSsid(trustedSsids.first()) ?: return null
-            if (map.values.any { it.equals(only, ignoreCase = true) }) {
-                return only to "assoc_memory_sole"
+        for (key in currentAssociationKeys()) {
+            val remembered = map[key]
+                ?: map.entries.firstOrNull { it.key.equals(key, ignoreCase = true) }?.value
+            val name = remembered?.let { ConfigRepository.normalizeSsid(it) } ?: continue
+            if (trustedSsids.any { it.equals(name, ignoreCase = true) }) {
+                return name to MATCH_ASSOC_MEMORY
             }
         }
         return null
@@ -585,12 +608,10 @@ class WifiConnectivityMonitor(private val context: Context) {
             if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) '1' else '0'
         var ssidPart = "-"
         var assocPart = "-"
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val info = caps.transportInfo as? WifiInfo
-            if (info != null) {
-                ssidPart = normalizeSsid(info.ssid) ?: "?"
-                assocPart = associationKeyFromWifiInfo(info) ?: "-"
-            }
+        val info = wifiInfoFrom(caps)
+        if (info != null) {
+            ssidPart = normalizeSsid(info.ssid) ?: "?"
+            assocPart = associationKeyFromWifiInfo(info) ?: "-"
         }
         return "$transports|$internet|$validated|$ssidPart|$assocPart"
     }
@@ -645,8 +666,7 @@ class WifiConnectivityMonitor(private val context: Context) {
             }
         }
 
-        val fromMemory =
-            trustedMatch == "assoc_memory" || trustedMatch == "assoc_memory_sole"
+        val fromMemory = trustedMatch == MATCH_ASSOC_MEMORY
         val ssidRedacted = live == null && hasPerm && !fromMemory
         return WifiSnapshot(
             wifiConnected = true,
@@ -917,6 +937,11 @@ class WifiConnectivityMonitor(private val context: Context) {
         private const val FLOW_DEBOUNCE_MS = 150L
         /** Location request interval — only to keep location "active" for SSID reads. */
         private const val LOCATION_BRIDGE_INTERVAL_MS = 30_000L
+        /** Placeholder returned instead of the real BSSID when location is unavailable. */
+        private const val REDACTED_BSSID = "02:00:00:00:00:00"
+
+        /** [WifiSnapshot.trustedMatch] value for a positive association-memory hit. */
+        const val MATCH_ASSOC_MEMORY = "assoc_memory"
 
         const val TRANSPORT_WIFI = "WIFI"
         const val TRANSPORT_CELLULAR = "CELLULAR"

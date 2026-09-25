@@ -1,0 +1,23 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    # Keeps the SHA pins in build.yml current without giving up immutability.
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: gradle
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      androidx:
+        patterns:
+          - "androidx.*"
+      test:
+        patterns:
+          - "junit:*"
+          - "org.robolectric:*"
+          - "androidx.test*"

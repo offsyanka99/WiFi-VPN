@@ -8,13 +8,24 @@ import android.os.Build
 import android.os.PowerManager
 import androidx.core.content.ContextCompat
 import com.wifivpn.app.R
+import com.wifivpn.app.network.LocalNetwork
+import com.wireguard.config.Config
 
 /**
  * Collects human-readable permission / background-setup issues for this app.
  */
 object PermissionStatusChecker {
 
-    fun missingIssues(context: Context): List<String> {
+    /**
+     * @param config the active WireGuard config, when known. Only used to decide whether a
+     * missing local-network permission matters (it does only for LAN peer endpoints).
+     * @param autoStartEnabled background location only matters when monitoring starts at boot.
+     */
+    fun missingIssues(
+        context: Context,
+        config: Config? = null,
+        autoStartEnabled: Boolean = false
+    ): List<String> {
         val issues = mutableListOf<String>()
 
         val hasFine = ContextCompat.checkSelfPermission(
@@ -44,12 +55,17 @@ object PermissionStatusChecker {
             issues += context.getString(R.string.perm_issue_vpn)
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val pm = context.getSystemService(PowerManager::class.java)
-            val exempt = pm?.isIgnoringBatteryOptimizations(context.packageName) == true
-            if (!exempt) {
-                issues += context.getString(R.string.perm_issue_battery)
-            }
+        if (LocalNetwork.blocksConfig(context, config)) {
+            issues += context.getString(R.string.perm_issue_local_network)
+        }
+
+        if (autoStartEnabled && !BackgroundLocation.isGranted(context)) {
+            issues += context.getString(R.string.perm_issue_background_location)
+        }
+
+        val pm = context.getSystemService(PowerManager::class.java)
+        if (pm?.isIgnoringBatteryOptimizations(context.packageName) != true) {
+            issues += context.getString(R.string.perm_issue_battery)
         }
 
         return issues

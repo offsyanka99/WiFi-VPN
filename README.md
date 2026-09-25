@@ -1,6 +1,6 @@
 # WiFi VPN
 
-**Version 1.4.10**
+**Version 1.4.12**
 
 Android app that monitors **trusted Wi‑Fi networks** in the background and automatically controls a **WireGuard** tunnel:
 
@@ -38,18 +38,32 @@ Signed release APKs are published as **[GitHub Release assets](https://github.co
 | Version | Download |
 |---------|----------|
 | **Latest** | [Releases](https://github.com/offsyanka99/WiFi-VPN/releases/latest) |
+| **1.4.12** | [v1.4.12](https://github.com/offsyanka99/WiFi-VPN/releases/tag/v1.4.12) |
 | **1.4.10** | [v1.4.10](https://github.com/offsyanka99/WiFi-VPN/releases/tag/v1.4.10) |
 | **1.4.9** | [v1.4.9](https://github.com/offsyanka99/WiFi-VPN/releases/tag/v1.4.9) |
-| **1.4.8** | [v1.4.8](https://github.com/offsyanka99/WiFi-VPN/releases/tag/v1.4.8) |
 
 Install with:
 
 ```bash
 # After downloading the APK from the GitHub release page:
-adb install -r wifi-vpn-1.4.10-release.apk
+adb install -r wifi-vpn-1.4.12-release.apk
 ```
 
 ## Changelog
+
+### 1.4.12
+
+Includes all changes from the unpublished 1.4.11 test build.
+
+- **Security — fail closed on unknown Wi‑Fi:** a hidden SSID is treated as trusted only when the access point's BSSID / network id positively matches a remembered trusted network; the "sole remembered SSID" fallback is removed
+- **Security — bounded SSID wait:** after reboot / app update, the VPN comes up after at most **90 s** if the network name stays hidden (previously waited indefinitely with VPN off); it still turns off as soon as a trusted name appears
+- **Trusted Wi‑Fi after reboot:** with auto-start, Android gives a monitor started at boot no location access unless location is allowed **"All the time"**, so the Wi‑Fi name stayed hidden until the app was opened. New **Configuration → Location all the time** switch (with **(i)** help) shows and changes this setting; the app also offers it when auto-start is enabled and after the problem occurs. Without it, opening the app once restores location access for the rest of the session, and the notification / widget say why the name is hidden
+- **Diagnostic log privacy:** SSIDs, access point addresses and the VPN server host are replaced with per-device codes; excluded apps logged as a count only; one-time confirmation before the first share; sending no longer re-enables logging. The log now records whether the monitor actually has location access
+- **Config:** a saved config that can no longer be decrypted (device security keys changed) is reported as such instead of looking like "no config loaded"
+- **Android 17:** `targetSdk` **37**; requests **Nearby devices → local network** access so a VPN server on a private / CGNAT address keeps working, with a clear message if it is denied
+- **Reliability:** cancelled VPN connects are no longer logged as failures; retry decisions use typed WireGuard errors instead of message text
+- **Performance:** encrypted-config and log-file work moved off the main thread
+- **Toolchain:** AGP **9.4.1**, Gradle **9.8**, `compileSdk` **37**; core-ktx 1.19, AppCompat 1.8, WorkManager 2.12, Robolectric 4.17
 
 ### 1.4.10
 
@@ -176,32 +190,34 @@ adb install -r wifi-vpn-1.4.10-release.apk
 | **`release/1.0`** | Stable **v1.0** release line (bugfixes only if needed) |
 | **`main`** | Ongoing development for future versions |
 
-Download tags currently published: `v1.4.8` / `v1.4.9` / `v1.4.10`. Older changelog entries remain below for history.
+Download tags currently published: `v1.4.9` / `v1.4.10` / `v1.4.12`. Older changelog entries remain below for history.
 
 ## Features
 
-- **Configuration** page for WireGuard config, trusted networks, app exclusions, VPN retries, VPN permission, battery optimization, unused-app setting, auto-start, and diagnostic log
+- **Configuration** page for WireGuard config, trusted networks, app exclusions, VPN retries, VPN permission, battery optimization, unused-app setting, auto-start, location all the time, and diagnostic log
 - **Trusted Wi‑Fi list** — add SSIDs manually or from the current network; VPN turns off only on those networks
 - **Foreground service** with a persistent status notification while monitoring
 - **WireGuard** tunnel via the userspace Go backend (`GoBackend$VpnService`)
 - Load config from a `.conf` file (system file picker); **private keys in Android Keystore–backed encrypted storage** (not plain backup)
 - **Exclude apps** from the VPN (e.g. Android Auto); multi-select list with search
 - Configurable **VPN connect retries** (attempts + delay) with progress in the notification
-- **Diagnostic log** (opt-in; network / VPN / tunnel / config events) with email share for troubleshooting
+- **Diagnostic log** (opt-in; network / VPN / tunnel / config events) with email share for troubleshooting; network names, access point addresses and the VPN server host are pseudonymised
 - **Weekly permission check** with alert notification if critical permissions are disabled
 - **Auto-start after reboot** (optional switch; requires config + at least one trusted SSID)
+- **Location all the time** switch (optional) so trusted Wi‑Fi is recognised right after a reboot without opening the app
 - **Battery optimization** exemption request and **Manage app if unused** shortcut (system settings)
 - **Quick Settings tile** to start/stop monitoring (label = tunnel/config name when loaded)
 - **VPN transfer stats** (main screen): live download/upload speed, session received/sent totals, last handshake age while the tunnel is up
 - **Home-screen widgets** (2×2 status and 4×1 bar) to glance **Monitoring: ON/OFF**, Wi‑Fi, **VPN: ON/OFF**, session totals + handshake when VPN is on, and start/stop
 - Location / nearby Wi‑Fi permission (needed to read SSIDs), and notification permission
+- **Fail closed** — a Wi‑Fi network that cannot be identified is treated as untrusted (VPN on)
 - **Screen off / locked** — monitor keeps a correct trusted/untrusted decision when the system redacts the SSID; VPN still turns on after leaving trusted Wi‑Fi
 
 ## Requirements
 
 - Android 8.0+ (API 26)
 - A WireGuard server and a client config (`[Interface]` / `[Peer]`)
-- JDK 17, Android SDK **36**, Gradle **9.6** / AGP **9.3**
+- JDK 17, Android SDK **37** (`platforms;android-37.0`), Gradle **9.8** / AGP **9.4**
 
 ## Toolchain (this machine)
 
@@ -211,7 +227,7 @@ Installed under the user home (no root required):
 |-----------|----------|
 | JDK 17 (Temurin) | `~/.local/jdk/jdk-17` |
 | Android SDK | `~/Android/Sdk` |
-| Platform 36 / Build-Tools 36 / platform-tools | under SDK |
+| Platform 37.0 / Build-Tools 36 / platform-tools | under SDK |
 | `local.properties` | `sdk.dir=/home/yurik/Android/Sdk` |
 
 Environment is appended to `~/.bashrc` (`JAVA_HOME`, `ANDROID_HOME`, `PATH`). Open a new terminal or `source ~/.bashrc`.
@@ -223,7 +239,7 @@ source ~/.bashrc
 cd /path/to/WiFi-VPN
 ./gradlew assembleDebug
 # APK: app/build/outputs/apk/debug/wifi-vpn-<version>-debug.apk
-adb install -r app/build/outputs/apk/debug/wifi-vpn-1.4.10-debug.apk
+adb install -r app/build/outputs/apk/debug/wifi-vpn-1.4.12-debug.apk
 ```
 
 ### Unit tests
@@ -244,18 +260,18 @@ Release builds use signing from `keystore.properties` (see `app/build.gradle.kts
 ./gradlew :app:assembleRelease
 
 # Output:
-#   app/build/outputs/apk/release/wifi-vpn-1.4.10-release.apk
+#   app/build/outputs/apk/release/wifi-vpn-1.4.12-release.apk
 
-adb install -r app/build/outputs/apk/release/wifi-vpn-1.4.10-release.apk
+adb install -r app/build/outputs/apk/release/wifi-vpn-1.4.12-release.apk
 
 # Publish to GitHub (example) — do not commit the APK:
-gh release create v1.4.10 \
-  app/build/outputs/apk/release/wifi-vpn-1.4.10-release.apk \
-  --title "1.4.10" \
+gh release create v1.4.12 \
+  app/build/outputs/apk/release/wifi-vpn-1.4.12-release.apk \
+  --title "1.4.12" \
   --notes "See README changelog."
 ```
 
-Current release: **1.4.10** (`versionCode` 26). Build outputs under `app/build/` are gitignored. APKs are distributed via **GitHub Releases**, not the git tree.
+Current release: **1.4.12** (`versionCode` 28). Build outputs under `app/build/` are gitignored. APKs are distributed via **GitHub Releases**, not the git tree.
 
 ## Setup
 
@@ -279,7 +295,7 @@ PersistentKeepalive = 25
 
 5. Still in **Configuration**, add at least one **trusted Wi‑Fi** (type the SSID or use **Add current network**). Grant location / nearby Wi‑Fi permission if prompted.
 6. Optionally choose **Exclude applications from VPN**.
-7. Tap **Grant VPN permission** (system dialog). Enable **Battery optimization** exemption and leave **Manage app if unused** off for reliable background work. Optionally enable **Auto-start after reboot**.
+7. Tap **Grant VPN permission** (system dialog). Enable **Battery optimization** exemption and leave **Manage app if unused** off for reliable background work. Optionally enable **Auto-start after reboot** — if you do, also turn on **Location all the time** so trusted Wi‑Fi is recognised right after a reboot.
 8. On the main screen, tap **Start monitoring**. Optionally add the **WiFi VPN** Quick Settings tile (on Android 16, make the tile **wide** in QS edit if you want the tunnel name visible next to the icon).
 
 ## How it works
@@ -308,7 +324,9 @@ WireGuard uses the official userspace Go backend (`GoBackend$VpnService`). Prefe
 SSID detection notes:
 
 - The monitor service uses foreground-service types **`location|specialUse`** so SSID can still be read while the screen is off (while-in-use location permission).
+- **After a reboot** (auto-start), Android grants a monitor started in the background no location access unless location is allowed **"All the time"**. Without it the SSID, BSSID and network id are all hidden until the app is opened once; opening it restores access for the rest of the session.
 - If the OS redacts the SSID on lock, the last known name is reused **only** while still associated to the same network (`networkId` / BSSID, supplicant `COMPLETED`). Cache is dropped on disconnect or network change so VPN turns on promptly when you leave trusted Wi‑Fi.
+- A remembered trusted network is recognised from memory only on a positive BSSID / `networkId` match. If nothing identifies the network, it is treated as **untrusted** (VPN on).
 
 ## Permissions
 
@@ -317,7 +335,9 @@ SSID detection notes:
 | `INTERNET` | Tunnel traffic |
 | `ACCESS_NETWORK_STATE` / `ACCESS_WIFI_STATE` | Detect Wi‑Fi |
 | `ACCESS_FINE_LOCATION` / `ACCESS_COARSE_LOCATION` | Read current SSID (Android requirement) |
+| `ACCESS_BACKGROUND_LOCATION` (optional) | "Allow all the time": read SSID after a reboot without opening the app |
 | `NEARBY_WIFI_DEVICES` | Read SSID on Android 13+ without full location use |
+| `ACCESS_LOCAL_NETWORK` | Android 17+: reach a VPN server on a private / CGNAT address |
 | `FOREGROUND_SERVICE` / `FOREGROUND_SERVICE_LOCATION` / `FOREGROUND_SERVICE_SPECIAL_USE` | Keep monitor alive; location type so SSID remains readable with screen off |
 | `POST_NOTIFICATIONS` | Status notification (Android 13+) |
 | `RECEIVE_BOOT_COMPLETED` | Resume monitoring after reboot when auto-start is on |
@@ -334,7 +354,8 @@ SSID detection notes:
 - SSID reading often needs **location services enabled** on the device, not only the runtime permission.
 - Test by leaving a trusted home Wi‑Fi (or turning Wi‑Fi off on mobile data) and watching the notification switch to “Other Wi‑Fi — VPN active” or “No Wi‑Fi — VPN active”.
 - Changes to excluded apps apply the **next** time the tunnel starts.
-- Diagnostic log does not include WireGuard private keys or full tunnel config.
+- Diagnostic log does not include WireGuard private keys or full tunnel config; network names, access point addresses and the VPN server host appear only as per-device codes.
+- Location is used only to read the Wi‑Fi name. Your position is never stored, logged or sent.
 
 ## License
 

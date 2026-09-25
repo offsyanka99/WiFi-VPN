@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,14 +17,16 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlin.math.max
 import kotlin.math.min
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "wifi_vpn_prefs")
 
-class ConfigRepository(private val context: Context) {
+class ConfigRepository(context: Context) {
 
-    private val secureConfig = SecureConfigStore(context)
+    private val context = context.applicationContext
+    private val secureConfig = SecureConfigStore(this.context)
     private val migrateMutex = Mutex()
 
     @Volatile
@@ -46,14 +49,25 @@ class ConfigRepository(private val context: Context) {
         val vpnRetryAttempts = intPreferencesKey("vpn_retry_attempts")
         val vpnRetryDelaySeconds = intPreferencesKey("vpn_retry_delay_seconds")
         val diagnosticLoggingEnabled = booleanPreferencesKey("diagnostic_logging_enabled")
+
+        /** User acknowledged what the diagnostic log contains before sharing it. */
+        val diagnosticShareConsented = booleanPreferencesKey("diagnostic_share_consented")
+
+        /** User chose "Not now" for "Allow all the time" location from the main screen. */
+        val backgroundLocationDeclined = booleanPreferencesKey("background_location_declined")
     }
 
-    private val _wireGuardConfig = MutableStateFlow(secureConfig.config)
-    private val _wireGuardConfigFileName = MutableStateFlow(secureConfig.fileName)
+    // Populated by [migrateSecureConfigIfNeeded]; decrypting here would block Application.onCreate.
+    private val _wireGuardConfig = MutableStateFlow("")
+    private val _wireGuardConfigFileName = MutableStateFlow("")
+    private val _configState = MutableStateFlow(SecureConfigStore.ConfigState.EMPTY)
 
     val wireGuardConfig: Flow<String> = _wireGuardConfig.asStateFlow()
 
     val wireGuardConfigFileName: Flow<String> = _wireGuardConfigFileName.asStateFlow()
+
+    /** Distinguishes "no config imported" from "config present but undecryptable". */
+    val configState: Flow<SecureConfigStore.ConfigState> = _configState.asStateFlow()
 
     val monitoringEnabled: Flow<Boolean> = context.dataStore.data.map { prefs ->
         prefs[keys.monitoringEnabled] ?: false
@@ -86,31 +100,38 @@ class ConfigRepository(private val context: Context) {
 
     /**
      * One-time move of WireGuard config from plain DataStore into encrypted storage.
-     * Safe to call multiple times.
+     * Safe to call multiple times. Must run off the main thread — it opens the Keystore
+     * and, on upgrades, the legacy Tink-backed store.
      */
     suspend fun migrateSecureConfigIfNeeded() {
         if (migratedConfig) return
         migrateMutex.withLock {
             if (migratedConfig) return
-            val prefs = context.dataStore.data.first()
-            val legacyConfig = prefs[keys.wgConfig].orEmpty()
-            val legacyName = prefs[keys.wgConfigFileName].orEmpty()
-            if (legacyConfig.isNotBlank() && secureConfig.isEmpty()) {
-                secureConfig.set(legacyConfig.trim(), legacyName)
-                _wireGuardConfig.value = secureConfig.config
-                _wireGuardConfigFileName.value = secureConfig.fileName
-            }
-            if (legacyConfig.isNotBlank() || legacyName.isNotBlank()) {
-                context.dataStore.edit { p ->
-                    p.remove(keys.wgConfig)
-                    p.remove(keys.wgConfigFileName)
+            withContext(Dispatchers.IO) {
+                secureConfig.migrateLegacyIfNeeded()
+                val prefs = context.dataStore.data.first()
+                val legacyConfig = prefs[keys.wgConfig].orEmpty()
+                val legacyName = prefs[keys.wgConfigFileName].orEmpty()
+                if (legacyConfig.isNotBlank() && secureConfig.isEmpty()) {
+                    secureConfig.set(legacyConfig.trim(), legacyName)
                 }
+                if (legacyConfig.isNotBlank() || legacyName.isNotBlank()) {
+                    context.dataStore.edit { p ->
+                        p.remove(keys.wgConfig)
+                        p.remove(keys.wgConfigFileName)
+                    }
+                }
+                // Refresh from secure store (covers process restarts)
+                publishSecureConfig()
             }
-            // Refresh from secure store (covers process restarts)
-            _wireGuardConfig.value = secureConfig.config
-            _wireGuardConfigFileName.value = secureConfig.fileName
             migratedConfig = true
         }
+    }
+
+    private fun publishSecureConfig() {
+        _configState.value = secureConfig.state()
+        _wireGuardConfig.value = secureConfig.config
+        _wireGuardConfigFileName.value = secureConfig.fileName
     }
 
     /** Sync read for tile / quick checks after migration. */
@@ -120,32 +141,39 @@ class ConfigRepository(private val context: Context) {
 
     fun hasWireGuardConfigSync(): Boolean = secureConfig.config.isNotBlank()
 
+    /** Last published state. Does not touch the Keystore, so it is safe on the main thread. */
+    fun lastConfigState(): SecureConfigStore.ConfigState = _configState.value
+
     suspend fun getWireGuardConfig(): String {
         migrateSecureConfigIfNeeded()
-        return secureConfig.config
+        return withContext(Dispatchers.IO) {
+            secureConfig.config.also { _configState.value = secureConfig.state() }
+        }
     }
 
     suspend fun getWireGuardConfigFileName(): String {
         migrateSecureConfigIfNeeded()
-        return secureConfig.fileName
+        return withContext(Dispatchers.IO) { secureConfig.fileName }
     }
 
     suspend fun setWireGuardConfig(config: String, fileName: String) {
         migrateSecureConfigIfNeeded()
-        secureConfig.set(config.trim(), fileName)
-        _wireGuardConfig.value = secureConfig.config
-        _wireGuardConfigFileName.value = secureConfig.fileName
+        withContext(Dispatchers.IO) {
+            secureConfig.set(config.trim(), fileName)
+            publishSecureConfig()
+        }
     }
 
     suspend fun clearWireGuardConfig() {
         migrateSecureConfigIfNeeded()
-        secureConfig.clear()
-        _wireGuardConfig.value = ""
-        _wireGuardConfigFileName.value = ""
-        // Ensure legacy keys are gone
-        context.dataStore.edit { p ->
-            p.remove(keys.wgConfig)
-            p.remove(keys.wgConfigFileName)
+        withContext(Dispatchers.IO) {
+            secureConfig.clear()
+            publishSecureConfig()
+            // Ensure legacy keys are gone
+            context.dataStore.edit { p ->
+                p.remove(keys.wgConfig)
+                p.remove(keys.wgConfigFileName)
+            }
         }
     }
 
@@ -202,13 +230,24 @@ class ConfigRepository(private val context: Context) {
      * for the same key. Ignores blank keys / SSIDs.
      */
     suspend fun rememberTrustedWifiAssociation(assocKey: String, ssid: String) {
-        val key = assocKey.trim()
+        rememberTrustedWifiAssociations(listOf(assocKey), ssid)
+    }
+
+    /**
+     * Remember every identity key ([bssid:…], [nid:…]) the platform exposed for a trusted
+     * network, in one write. Storing both means a renumbered `networkId` cannot alias a
+     * different SSID as long as the BSSID still matches.
+     */
+    suspend fun rememberTrustedWifiAssociations(assocKeys: Collection<String>, ssid: String) {
         val name = normalizeSsid(ssid) ?: return
-        if (key.isBlank()) return
+        val cleanKeys = assocKeys.map { it.trim() }.filter { it.isNotBlank() }
+        if (cleanKeys.isEmpty()) return
         context.dataStore.edit { prefs ->
             val map = parseAssociationEntries(prefs[keys.trustedWifiAssociations].orEmpty())
                 .toMutableMap()
-            map[key] = name
+            for (key in cleanKeys) {
+                map[key] = name
+            }
             prefs[keys.trustedWifiAssociations] = encodeAssociationEntries(map)
         }
     }
@@ -267,10 +306,29 @@ class ConfigRepository(private val context: Context) {
         }
     }
 
+    suspend fun isDiagnosticShareConsented(): Boolean {
+        return context.dataStore.data.first()[keys.diagnosticShareConsented] ?: false
+    }
+
+    suspend fun setDiagnosticShareConsented(consented: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[keys.diagnosticShareConsented] = consented
+        }
+    }
+
+    suspend fun isBackgroundLocationDeclined(): Boolean {
+        return context.dataStore.data.first()[keys.backgroundLocationDeclined] ?: false
+    }
+
+    suspend fun setBackgroundLocationDeclined(declined: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[keys.backgroundLocationDeclined] = declined
+        }
+    }
+
     /** Ready to run monitor in background (config + at least one trusted SSID). */
     suspend fun canStartMonitoring(): Boolean {
-        migrateSecureConfigIfNeeded()
-        return secureConfig.config.isNotBlank() && getTrustedWifiSsids().isNotEmpty()
+        return getWireGuardConfig().isNotBlank() && getTrustedWifiSsids().isNotEmpty()
     }
 
     /** Sync after migration — used by tile without blocking the main thread on DataStore. */

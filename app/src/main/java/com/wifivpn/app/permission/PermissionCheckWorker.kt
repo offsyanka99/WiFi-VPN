@@ -26,9 +26,13 @@ class PermissionCheckWorker(
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result {
-        val issues = PermissionStatusChecker.missingIssues(applicationContext)
-        Log.i(TAG, "Weekly permission check: ${issues.size} issue(s)")
         val app = applicationContext as? WifiVpnApp
+        val config = app?.let {
+            it.wireGuardManager.parseConfig(it.configRepository.getWireGuardConfig()).getOrNull()
+        }
+        val autoStart = app?.configRepository?.isAutoStartEnabled() == true
+        val issues = PermissionStatusChecker.missingIssues(applicationContext, config, autoStart)
+        Log.i(TAG, "Weekly permission check: ${issues.size} issue(s)")
         val logger = app?.diagnosticLogger
         if (logger != null) {
             if (issues.isEmpty()) {
@@ -96,14 +100,6 @@ class PermissionCheckWorker(
                 request
             )
             Log.i(TAG, "Scheduled weekly permission check")
-        }
-
-        /** Run once soon (e.g. after install / boot) without waiting a week. */
-        fun runOnce(context: Context) {
-            val request = androidx.work.OneTimeWorkRequestBuilder<PermissionCheckWorker>()
-                .addTag("${UNIQUE_WORK}_once")
-                .build()
-            WorkManager.getInstance(context.applicationContext).enqueue(request)
         }
     }
 }

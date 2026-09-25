@@ -19,9 +19,12 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.wifivpn.app.data.SecureConfigStore
 import com.wifivpn.app.databinding.ActivityMainBinding
 import com.wifivpn.app.databinding.DialogAboutBinding
+import com.wifivpn.app.network.LocalNetwork
 import com.wifivpn.app.network.WifiConnectivityMonitor
+import com.wifivpn.app.permission.BackgroundLocation
 import com.wifivpn.app.service.WifiMonitorService
 import com.wifivpn.app.tile.MonitorTileService
 import com.wifivpn.app.util.InternalIntentAuth
@@ -29,6 +32,7 @@ import com.wifivpn.app.util.InternalIntentAuth.hasValidInternalAuth
 import com.wifivpn.app.vpn.TransferStatsFormatter
 import com.wifivpn.app.vpn.TunnelTransferStats
 import com.wifivpn.app.widget.StatusWidgets
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
@@ -40,7 +44,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private val app get() = application as WifiVpnApp
-    private lateinit var wifiMonitor: WifiConnectivityMonitor
+    private val wifiMonitor: WifiConnectivityMonitor get() = app.wifiMonitor
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -60,13 +64,38 @@ class MainActivity : AppCompatActivity() {
         refreshWifiStatusHint()
     }
 
+    private val backgroundLocationLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        app.diagnosticLogger.i("UI", "background_location ${if (granted) "granted" else "denied"}")
+        if (!granted) toast(getString(R.string.msg_background_location_denied))
+        lifecycleScope.launch { app.configRepository.setBackgroundLocationDeclined(!granted) }
+    }
+
+    /** Shown only right after the boot problem actually happened, and not after "Not now". */
+    private fun offerBackgroundLocationAfterRestart() {
+        val permission = BackgroundLocation.permissionToRequest(this) ?: return
+        lifecycleScope.launch {
+            if (!app.configRepository.isAutoStartEnabled()) return@launch
+            if (app.configRepository.isBackgroundLocationDeclined()) return@launch
+            BackgroundLocation.showRationale(
+                this@MainActivity,
+                onContinue = { backgroundLocationLauncher.launch(permission) },
+                onLater = {
+                    lifecycleScope.launch {
+                        app.configRepository.setBackgroundLocationDeclined(true)
+                    }
+                }
+            )
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         applySystemBarInsets()
-        wifiMonitor = WifiConnectivityMonitor(this)
 
         requestNotificationPermissionIfNeeded()
         requestSsidPermissionsIfNeeded()
@@ -135,6 +164,10 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        // A monitor started after reboot has no location access until one of our activities is visible.
+        if (WifiMonitorService.instance?.regainLocationAccessIfNeeded() == true) {
+            offerBackgroundLocationAfterRestart()
+        }
         if (!WifiMonitorService.uiState.value.monitoring) {
             refreshWifiStatusHint()
         }
@@ -377,7 +410,13 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             val raw = app.configRepository.getWireGuardConfig()
             if (raw.isBlank()) {
-                toast(getString(R.string.msg_config_empty))
+                val unreadable = app.configRepository.lastConfigState() ==
+                    SecureConfigStore.ConfigState.UNREADABLE
+                toast(
+                    getString(
+                        if (unreadable) R.string.msg_config_unreadable else R.string.msg_config_empty
+                    )
+                )
                 return@launch
             }
             val parsed = app.wireGuardManager.parseConfig(raw)
@@ -425,6 +464,8 @@ class MainActivity : AppCompatActivity() {
                     // Return to previous app / home after tile or widget start
                     moveTaskToBack(true)
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to start monitoring", e)
                 app.diagnosticLogger.logException("UI", "Failed to start monitoring", e)
@@ -457,6 +498,8 @@ class MainActivity : AppCompatActivity() {
         ) {
             needed += Manifest.permission.NEARBY_WIFI_DEVICES
         }
+        // Same NEARBY_DEVICES group, so no extra prompt once Wi‑Fi devices is granted.
+        LocalNetwork.permissionToRequest(this)?.let { needed += it }
         if (needed.isNotEmpty()) {
             locationPermissionLauncher.launch(needed.toTypedArray())
         }

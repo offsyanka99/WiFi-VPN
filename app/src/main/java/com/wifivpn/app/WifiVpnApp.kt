@@ -6,15 +6,18 @@ import android.app.NotificationManager
 import android.util.Log
 import com.wifivpn.app.data.ConfigRepository
 import com.wifivpn.app.log.DiagnosticLogger
+import com.wifivpn.app.network.WifiConnectivityMonitor
 import com.wifivpn.app.permission.PermissionCheckWorker
 import com.wifivpn.app.util.AppInfo
 import com.wifivpn.app.vpn.WireGuardManager
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlin.system.exitProcess
 
 class WifiVpnApp : Application() {
 
@@ -26,6 +29,13 @@ class WifiVpnApp : Application() {
 
     lateinit var diagnosticLogger: DiagnosticLogger
         private set
+
+    /**
+     * Single shared monitor. Its SSID cache is filled by the callbacks the foreground
+     * service registers, so per-screen instances would report `ssid=none` even while the
+     * service knows the network.
+     */
+    val wifiMonitor: WifiConnectivityMonitor by lazy { WifiConnectivityMonitor(this) }
 
     /**
      * Application-scoped work (no runBlocking on main).
@@ -70,15 +80,17 @@ class WifiVpnApp : Application() {
         installUncaughtExceptionHandler()
         // Default logging off until prefs load (avoids runBlocking on main)
         diagnosticLogger.setEnabled(false)
-        // Sync-warm config caches from encrypted store (no DataStore)
-        cachedConfigFileName = configRepository.getWireGuardConfigFileNameSync()
         wireGuardManager = WireGuardManager(this)
         createNotificationChannels()
         PermissionCheckWorker.schedule(this)
 
+        // Keystore unwrap + legacy migration are IPC/disk work: never on the main thread.
         applicationScope.launch {
             runCatching { configRepository.migrateSecureConfigIfNeeded() }
-                .onFailure { Log.e(TAG, "Secure config migration failed", it) }
+                .onFailure {
+                    if (it is CancellationException) throw it
+                    Log.e(TAG, "Secure config migration failed", it)
+                }
 
             refreshRuntimeCaches()
 
@@ -144,13 +156,12 @@ class WifiVpnApp : Application() {
                 previous.uncaughtException(thread, throwable)
             } else {
                 android.os.Process.killProcess(android.os.Process.myPid())
-                System.exit(10)
+                exitProcess(10)
             }
         }
     }
 
     private fun createNotificationChannels() {
-        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O) return
         val nm = getSystemService(NotificationManager::class.java)
 
         val monitor = NotificationChannel(

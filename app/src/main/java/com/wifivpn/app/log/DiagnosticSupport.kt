@@ -8,7 +8,8 @@ import android.os.Build
 import android.os.PowerManager
 import androidx.core.content.ContextCompat
 import com.wifivpn.app.WifiVpnApp
-import com.wifivpn.app.network.WifiConnectivityMonitor
+import com.wifivpn.app.network.LocalNetwork
+import com.wifivpn.app.permission.BackgroundLocation
 import com.wifivpn.app.service.WifiMonitorService
 import com.wifivpn.app.util.AppInfo
 import com.wireguard.config.Config
@@ -47,18 +48,25 @@ object DiagnosticSupport {
             else -> "no"
         }
         val vpn = if (VpnService.prepare(appCtx) == null) "ok" else "no"
-        val battery = when {
-            Build.VERSION.SDK_INT < Build.VERSION_CODES.M -> "n/a"
-            else -> {
-                val pm = appCtx.getSystemService(PowerManager::class.java)
-                if (pm?.isIgnoringBatteryOptimizations(appCtx.packageName) == true) {
-                    "exempt"
-                } else {
-                    "restricted"
-                }
+        val lan = when {
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.CINNAMON_BUN -> "n/a"
+            LocalNetwork.isPermissionMissing(appCtx) -> "no"
+            else -> "ok"
+        }
+        val bgloc = when {
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.Q -> "n/a"
+            BackgroundLocation.isGranted(appCtx) -> "ok"
+            else -> "no"
+        }
+        val battery = run {
+            val pm = appCtx.getSystemService(PowerManager::class.java)
+            if (pm?.isIgnoringBatteryOptimizations(appCtx.packageName) == true) {
+                "exempt"
+            } else {
+                "restricted"
             }
         }
-        return "loc=$loc nearby=$nearby notif=$notif vpn=$vpn battery=$battery"
+        return "loc=$loc bgloc=$bgloc nearby=$nearby lan=$lan notif=$notif vpn=$vpn battery=$battery"
     }
 
     fun isScreenInteractive(context: Context): Boolean {
@@ -68,10 +76,10 @@ object DiagnosticSupport {
     }
 
     /**
-     * WireGuard config summary without private keys or PSKs.
-     * Example: `peers=1 addrs=1 dns=1 listen=- mtu=- p0{ep=vpn.example.com:51820 allowed=2}`
+     * WireGuard config summary without private keys, PSKs, or the plain endpoint host.
+     * Example: `peers=1 addrs=1 dns=1 listen=- mtu=- p0{ep=#3f9a1c07:51820 allowed=2}`
      */
-    fun configFingerprint(rawConfig: String): String {
+    fun configFingerprint(context: Context, rawConfig: String): String {
         if (rawConfig.isBlank()) return "empty"
         return try {
             val config = Config.parse(BufferedReader(StringReader(rawConfig)))
@@ -79,7 +87,7 @@ object DiagnosticSupport {
             val peers = config.peers
             val peerSummary = peers.mapIndexed { idx, peer ->
                 val ep = if (peer.endpoint.isPresent) {
-                    peer.endpoint.get().toString()
+                    LogRedactor.endpoint(context, peer.endpoint.get().toString())
                 } else {
                     "none"
                 }
@@ -106,7 +114,7 @@ object DiagnosticSupport {
         val trusted = repo.getTrustedWifiSsids()
         val excluded = repo.getExcludedApps()
         val raw = repo.getWireGuardConfig()
-        val snap = WifiConnectivityMonitor(app).snapshot(trusted)
+        val snap = app.wifiMonitor.snapshot(trusted)
         val version = AppInfo.versionLabel(app)
         val line = buildString {
             append("support summary ($reason): ")
@@ -119,12 +127,12 @@ object DiagnosticSupport {
             append("auto_start=${if (repo.isAutoStartEnabled()) "on" else "off"} ")
             append("logging=${if (app.diagnosticLogger.isEnabled()) "on" else "off"} ")
             append("perms: ${permissionSnapshot(app)} ")
-            append("ssid=${snap.ssid?.let { "\"$it\"" } ?: "none"} ")
+            append("ssid=${LogRedactor.ssid(app, snap.ssid)} ")
             append("ssid_redacted=${snap.ssidRedacted} ")
             append("ssid_from_cache=${snap.ssidFromCache} ")
             append("screen=${if (snap.screenInteractive) "on" else "off"} ")
             append("transports=${snap.transports.ifEmpty { "none" }} ")
-            append("config ${configFingerprint(raw)}")
+            append("config ${configFingerprint(app, raw)}")
         }
         app.diagnosticLogger.i("SUPPORT", line)
     }

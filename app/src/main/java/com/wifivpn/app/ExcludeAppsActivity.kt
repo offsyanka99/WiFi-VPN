@@ -76,7 +76,7 @@ class ExcludeAppsActivity : AppCompatActivity() {
 
     private fun loadInstalledApps(): List<AppRow> {
         val pm = packageManager
-        val apps = pm.getInstalledApplications(PackageManager.GET_META_DATA)
+        val apps = pm.getInstalledApplications(0)
         val self = packageName
         return apps
             .asSequence()
@@ -111,15 +111,8 @@ class ExcludeAppsActivity : AppCompatActivity() {
         lifecycleScope.launch {
             val packages = selected.toSet()
             app.configRepository.setExcludedApps(packages)
-            val list = if (packages.isEmpty()) {
-                "(none)"
-            } else {
-                packages.sorted().joinToString(",")
-            }
-            app.diagnosticLogger.i(
-                "CONFIG",
-                "excluded_apps count=${packages.size} packages=$list"
-            )
+            // Count only: the installed-app list is PII and the log is shareable.
+            app.diagnosticLogger.i("CONFIG", "excluded_apps count=${packages.size}")
             Toast.makeText(this@ExcludeAppsActivity, R.string.msg_exclusions_saved, Toast.LENGTH_SHORT)
                 .show()
             finish()

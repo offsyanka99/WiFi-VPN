@@ -2,6 +2,7 @@ package com.wifivpn.app
 
 import android.Manifest
 import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -28,15 +29,22 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.wifivpn.app.configuration.BackgroundSettingsHelper
 import com.wifivpn.app.configuration.DiagnosticLogHelper
 import com.wifivpn.app.data.ConfigRepository
+import com.wifivpn.app.data.SecureConfigStore
 import com.wifivpn.app.databinding.ActivityConfigurationBinding
 import com.wifivpn.app.databinding.ItemWifiSsidBinding
 import com.wifivpn.app.log.DiagnosticSupport
+import com.wifivpn.app.log.LogRedactor
+import com.wifivpn.app.network.LocalNetwork
 import com.wifivpn.app.network.WifiConnectivityMonitor
+import com.wifivpn.app.permission.BackgroundLocation
 import com.wifivpn.app.tile.MonitorTileService
 import com.wifivpn.app.util.AppInfo
 import com.wifivpn.app.widget.StatusWidgets
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * App settings: WireGuard config, trusted Wi‑Fi, VPN exclusions,
@@ -46,7 +54,7 @@ class ConfigurationActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityConfigurationBinding
     private val app get() = application as WifiVpnApp
-    private lateinit var wifiMonitor: WifiConnectivityMonitor
+    private val wifiMonitor: WifiConnectivityMonitor get() = app.wifiMonitor
 
     private var retryAttempts: Int = ConfigRepository.DEFAULT_VPN_RETRY_ATTEMPTS
     private var retryDelaySeconds: Int = ConfigRepository.DEFAULT_VPN_RETRY_DELAY_SECONDS
@@ -69,6 +77,16 @@ class ConfigurationActivity : AppCompatActivity() {
         if (!granted) {
             toast(getString(R.string.msg_location_permission_needed))
         }
+    }
+
+    private val backgroundLocationLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        logConfig("background_location ${if (granted) "granted" else "denied"}")
+        if (!granted) toast(getString(R.string.msg_background_location_denied))
+        // An explicit grant/deny here resets the "not now" choice made from the main screen.
+        lifecycleScope.launch { app.configRepository.setBackgroundLocationDeclined(!granted) }
+        refreshBackgroundLocationSwitch()
     }
 
     private val vpnPermissionLauncher = registerForActivityResult(
@@ -122,7 +140,6 @@ class ConfigurationActivity : AppCompatActivity() {
         binding = ActivityConfigurationBinding.inflate(layoutInflater)
         setContentView(binding.root)
         applySystemBarInsets()
-        wifiMonitor = WifiConnectivityMonitor(this)
 
         binding.toolbar.setNavigationOnClickListener { finish() }
 
@@ -191,6 +208,10 @@ class ConfigurationActivity : AppCompatActivity() {
             if (!button.isPressed) return@setOnCheckedChangeListener
             onAutoStartToggled(isChecked)
         }
+        binding.switchBackgroundLocation.setOnCheckedChangeListener { button, isChecked ->
+            if (!button.isPressed) return@setOnCheckedChangeListener
+            onBackgroundLocationToggled(isChecked)
+        }
 
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -202,6 +223,16 @@ class ConfigurationActivity : AppCompatActivity() {
                             getString(R.string.config_loaded, name)
                         }
                         binding.btnClearConfig.isEnabled = name.isNotBlank()
+                    }
+                }
+                launch {
+                    app.configRepository.configState.collectLatest { state ->
+                        // An invalidated Keystore key must not look like "never imported".
+                        if (state == SecureConfigStore.ConfigState.UNREADABLE) {
+                            binding.configFileName.text =
+                                getString(R.string.config_unreadable)
+                            binding.btnClearConfig.isEnabled = true
+                        }
                     }
                 }
                 launch {
@@ -243,6 +274,7 @@ class ConfigurationActivity : AppCompatActivity() {
 
         updateVpnPermissionButton()
         backgroundSettings.refreshAll()
+        refreshBackgroundLocationSwitch()
         renderRetryUi()
     }
 
@@ -288,6 +320,8 @@ class ConfigurationActivity : AppCompatActivity() {
         super.onResume()
         updateVpnPermissionButton()
         backgroundSettings.refreshAll()
+        // The user may have changed it in system settings while we were paused.
+        refreshBackgroundLocationSwitch()
         lifecycleScope.launch {
             renderExcludedApps(app.configRepository.getExcludedApps())
             renderTrustedWifi(app.configRepository.getTrustedWifiSsids())
@@ -340,16 +374,10 @@ class ConfigurationActivity : AppCompatActivity() {
     private fun importConfigFromUri(uri: Uri) {
         lifecycleScope.launch {
             try {
-                val fileName = queryDisplayName(uri) ?: "config.conf"
-                val raw = contentResolver.openInputStream(uri)?.use { input ->
-                    val buf = ByteArray(MAX_CONFIG_IMPORT_BYTES + 1)
-                    var offset = 0
-                    while (offset < buf.size) {
-                        val n = input.read(buf, offset, buf.size - offset)
-                        if (n < 0) break
-                        offset += n
-                    }
-                    if (offset > MAX_CONFIG_IMPORT_BYTES) {
+                // Document providers can be remote (e.g. Drive) — never read on the main thread.
+                val document = withContext(Dispatchers.IO) { readConfigDocument(uri) }
+                when (document) {
+                    is ConfigDocument.TooLarge -> {
                         toast(
                             getString(
                                 R.string.msg_config_too_large,
@@ -358,31 +386,38 @@ class ConfigurationActivity : AppCompatActivity() {
                         )
                         return@launch
                     }
-                    String(buf, 0, offset, Charsets.UTF_8)
-                }.orEmpty()
-                if (raw.isBlank()) {
-                    toast(getString(R.string.msg_config_empty))
-                    return@launch
-                }
-                val parsed = app.wireGuardManager.parseConfig(raw)
-                if (parsed.isFailure) {
-                    toast(
-                        getString(
-                            R.string.msg_config_invalid,
-                            parsed.exceptionOrNull()?.message ?: "parse error"
+                    is ConfigDocument.Empty -> {
+                        toast(getString(R.string.msg_config_empty))
+                        return@launch
+                    }
+                    is ConfigDocument.Loaded -> {
+                        val parsed = app.wireGuardManager.parseConfig(document.raw)
+                        if (parsed.isFailure) {
+                            toast(
+                                getString(
+                                    R.string.msg_config_invalid,
+                                    parsed.exceptionOrNull()?.message ?: "parse error"
+                                )
+                            )
+                            return@launch
+                        }
+                        // Stored encrypted in-app — no need to keep persistable URI access.
+                        app.configRepository.setWireGuardConfig(document.raw, document.fileName)
+                        logConfig(
+                            "wireguard_config loaded file=${document.fileName} " +
+                                "bytes=${document.raw.length} fingerprint=" +
+                                DiagnosticSupport.configFingerprint(
+                                    this@ConfigurationActivity,
+                                    document.raw
+                                )
                         )
-                    )
-                    return@launch
+                        MonitorTileService.requestUpdate(this@ConfigurationActivity)
+                        StatusWidgets.updateAll(this@ConfigurationActivity)
+                        toast(getString(R.string.msg_config_saved))
+                    }
                 }
-                // Content is stored encrypted in-app — no need to keep persistable URI access.
-                app.configRepository.setWireGuardConfig(raw, fileName)
-                logConfig(
-                    "wireguard_config loaded file=$fileName bytes=${raw.length} " +
-                        "fingerprint=${DiagnosticSupport.configFingerprint(raw)}"
-                )
-                MonitorTileService.requestUpdate(this@ConfigurationActivity)
-                StatusWidgets.updateAll(this@ConfigurationActivity)
-                toast(getString(R.string.msg_config_saved))
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 app.diagnosticLogger.logException(
                     CAT_CONFIG,
@@ -392,6 +427,29 @@ class ConfigurationActivity : AppCompatActivity() {
                 toast(getString(R.string.msg_config_read_failed, e.message ?: "error"))
             }
         }
+    }
+
+    private sealed interface ConfigDocument {
+        data class Loaded(val raw: String, val fileName: String) : ConfigDocument
+        data object Empty : ConfigDocument
+        data object TooLarge : ConfigDocument
+    }
+
+    private fun readConfigDocument(uri: Uri): ConfigDocument {
+        val fileName = queryDisplayName(uri) ?: "config.conf"
+        val raw = contentResolver.openInputStream(uri)?.use { input ->
+            val buf = ByteArray(MAX_CONFIG_IMPORT_BYTES + 1)
+            var offset = 0
+            while (offset < buf.size) {
+                val n = input.read(buf, offset, buf.size - offset)
+                if (n < 0) break
+                offset += n
+            }
+            if (offset > MAX_CONFIG_IMPORT_BYTES) return ConfigDocument.TooLarge
+            String(buf, 0, offset, Charsets.UTF_8)
+        }.orEmpty()
+        if (raw.isBlank()) return ConfigDocument.Empty
+        return ConfigDocument.Loaded(raw, fileName)
     }
 
     private fun queryDisplayName(uri: Uri): String? {
@@ -430,7 +488,10 @@ class ConfigurationActivity : AppCompatActivity() {
             row.btnRemoveSsid.setOnClickListener {
                 lifecycleScope.launch {
                     app.configRepository.removeTrustedWifiSsid(ssid)
-                    logConfig("trusted_wifi removed ssid=$ssid")
+                    logConfig(
+                        "trusted_wifi removed ssid=" +
+                            LogRedactor.ssid(this@ConfigurationActivity, ssid)
+                    )
                     toast(getString(R.string.msg_wifi_removed, ssid))
                 }
             }
@@ -449,7 +510,11 @@ class ConfigurationActivity : AppCompatActivity() {
             val added = app.configRepository.addTrustedWifiSsid(normalized)
             if (added) {
                 binding.ssidInput.text?.clear()
-                logConfig("trusted_wifi added ssid=$normalized source=manual")
+                logConfig(
+                    "trusted_wifi added ssid=" +
+                        LogRedactor.ssid(this@ConfigurationActivity, normalized) +
+                        " source=manual"
+                )
                 toast(getString(R.string.msg_wifi_added, normalized))
             } else {
                 toast(getString(R.string.msg_wifi_exists, normalized))
@@ -471,7 +536,11 @@ class ConfigurationActivity : AppCompatActivity() {
         lifecycleScope.launch {
             val added = app.configRepository.addTrustedWifiSsid(ssid)
             if (added) {
-                logConfig("trusted_wifi added ssid=$ssid source=current")
+                logConfig(
+                    "trusted_wifi added ssid=" +
+                        LogRedactor.ssid(this@ConfigurationActivity, ssid) +
+                        " source=current"
+                )
                 toast(getString(R.string.msg_wifi_added, ssid))
             } else {
                 toast(getString(R.string.msg_wifi_exists, ssid))
@@ -492,6 +561,7 @@ class ConfigurationActivity : AppCompatActivity() {
         ) {
             needed += Manifest.permission.NEARBY_WIFI_DEVICES
         }
+        LocalNetwork.permissionToRequest(this)?.let { needed += it }
         if (needed.isNotEmpty()) {
             locationPermissionLauncher.launch(needed.toTypedArray())
         }
@@ -535,6 +605,66 @@ class ConfigurationActivity : AppCompatActivity() {
                     if (isChecked) R.string.msg_auto_start_on else R.string.msg_auto_start_off
                 )
             )
+            if (isChecked) offerBackgroundLocation()
+        }
+    }
+
+    /**
+     * Auto-start runs the monitor from BOOT_COMPLETED, where "while in use" location does not
+     * apply, so the Wi‑Fi name stays hidden until the app is opened without this.
+     */
+    private fun offerBackgroundLocation() {
+        val permission = BackgroundLocation.permissionToRequest(this) ?: return
+        // Android only offers "all the time" once foreground location is granted.
+        if (!wifiMonitor.hasSsidPermission()) {
+            requestSsidPermissionsIfNeeded()
+            return
+        }
+        BackgroundLocation.showRationale(
+            this,
+            onContinue = { backgroundLocationLauncher.launch(permission) }
+        )
+    }
+
+    /** Mirrors the real permission state; the app cannot grant or revoke it itself. */
+    private fun refreshBackgroundLocationSwitch() {
+        val separatePermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+        binding.switchBackgroundLocation.isEnabled = separatePermission
+        binding.switchBackgroundLocation.isChecked = if (separatePermission) {
+            BackgroundLocation.isGranted(this)
+        } else {
+            wifiMonitor.hasSsidPermission()
+        }
+    }
+
+    private fun onBackgroundLocationToggled(wantOn: Boolean) {
+        // Re-sync now; the dialog / system screen result decides the final state.
+        refreshBackgroundLocationSwitch()
+        if (wantOn) {
+            val permission = BackgroundLocation.permissionToRequest(this) ?: return
+            if (!wifiMonitor.hasSsidPermission()) {
+                // Android only offers "all the time" once "while in use" is granted.
+                requestSsidPermissionsIfNeeded()
+                toast(getString(R.string.msg_location_permission_needed))
+                return
+            }
+            logConfig("background_location user requested")
+            BackgroundLocation.showRationale(
+                this,
+                onContinue = { backgroundLocationLauncher.launch(permission) }
+            )
+        } else {
+            logConfig("background_location user opened app settings to revoke")
+            try {
+                startActivity(
+                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                        data = Uri.fromParts("package", packageName, null)
+                    }
+                )
+                toast(getString(R.string.msg_background_location_revoke))
+            } catch (e: ActivityNotFoundException) {
+                Log.w(TAG, "App settings screen unavailable", e)
+            }
         }
     }
 
@@ -558,6 +688,12 @@ class ConfigurationActivity : AppCompatActivity() {
         }
         binding.infoDiagnosticLog.setOnClickListener {
             showInfoDialog(R.string.label_diagnostic_log, getString(R.string.diagnostic_log_help))
+        }
+        binding.infoBackgroundLocation.setOnClickListener {
+            showInfoDialog(
+                R.string.label_background_location,
+                getString(R.string.background_location_help)
+            )
         }
     }
 

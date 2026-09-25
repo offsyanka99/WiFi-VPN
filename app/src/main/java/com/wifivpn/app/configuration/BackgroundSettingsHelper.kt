@@ -8,6 +8,7 @@ import android.provider.Settings
 import android.util.Log
 import androidx.activity.result.ActivityResultLauncher
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.net.toUri
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.wifivpn.app.R
 
@@ -41,10 +42,6 @@ class BackgroundSettingsHelper(
     }
 
     fun onBatteryToggled(wantExempt: Boolean) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
-            refreshBattery()
-            return
-        }
         val currentlyExempt = isIgnoringBatteryOptimizations()
         if (wantExempt == currentlyExempt) return
 
@@ -52,7 +49,7 @@ class BackgroundSettingsHelper(
             logConfig("battery_optimization user requested exemption")
             try {
                 val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                    data = Uri.parse("package:${activity.packageName}")
+                    data = "package:${activity.packageName}".toUri()
                 }
                 batteryLauncher.launch(intent)
                 toast(activity.getString(R.string.msg_battery_opt_on))
@@ -110,7 +107,6 @@ class BackgroundSettingsHelper(
     }
 
     private fun isIgnoringBatteryOptimizations(): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return true
         val pm = activity.getSystemService(PowerManager::class.java) ?: return false
         return pm.isIgnoringBatteryOptimizations(activity.packageName)
     }

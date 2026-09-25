@@ -25,3 +25,7 @@ out/
 *.keystore
 /keystore/
 keystore.properties
+# Local feasibility notes (not for git)
+/docs/route-all-traffic-feasibility.md
+# Local project review notes (not for git)
+/PROJECT_REVIEW.md

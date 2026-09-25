@@ -1,23 +1,33 @@
 package com.wifivpn.app.log
 
+import android.app.Application
+import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
 /**
- * Ensures support fingerprints never embed private keys or PSKs.
+ * Ensures support fingerprints never embed private keys, PSKs, or the plain endpoint host.
  */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34], application = Application::class)
 class DiagnosticSupportTest {
+
+    private val context: Application
+        get() = ApplicationProvider.getApplicationContext()
 
     @Test
     fun configFingerprint_empty() {
-        assertTrue(DiagnosticSupport.configFingerprint("").contains("empty"))
-        assertTrue(DiagnosticSupport.configFingerprint("   ").contains("empty"))
+        assertTrue(DiagnosticSupport.configFingerprint(context, "").contains("empty"))
+        assertTrue(DiagnosticSupport.configFingerprint(context, "   ").contains("empty"))
     }
 
     @Test
     fun configFingerprint_invalidIsParseError() {
-        val fp = DiagnosticSupport.configFingerprint("not-valid-config")
+        val fp = DiagnosticSupport.configFingerprint(context, "not-valid-config")
         assertTrue(fp.startsWith("parse_error="))
     }
 
@@ -40,7 +50,7 @@ class DiagnosticSupportTest {
             Endpoint = opnsense.example.com:51821
         """.trimIndent()
 
-        val fp = DiagnosticSupport.configFingerprint(conf)
+        val fp = DiagnosticSupport.configFingerprint(context, conf)
         // If parse fails due to invalid key material, still must not echo secrets.
         assertFalse(fp.contains(privateKey))
         assertFalse(fp.contains(publicKey))
@@ -50,5 +60,22 @@ class DiagnosticSupportTest {
             assertTrue(fp.contains("peers="))
             assertTrue(fp.contains("ep=") || fp.contains("p0{"))
         }
+    }
+
+    @Test
+    fun configFingerprint_neverEchoesEndpointHost() {
+        val conf = """
+            [Interface]
+            PrivateKey = cGFzc3dvcmRwYXNzd29yZHBhc3N3b3JkcGFzc3dvcmQ=
+            Address = 10.7.0.2/32
+
+            [Peer]
+            PublicKey = cHVibGlja2V5cHVibGlja2V5cHVibGlja2V5cHVi=
+            AllowedIPs = 0.0.0.0/0
+            Endpoint = opnsense.example.com:51821
+        """.trimIndent()
+
+        val fp = DiagnosticSupport.configFingerprint(context, conf)
+        assertFalse(fp.contains("opnsense.example.com"))
     }
 }
