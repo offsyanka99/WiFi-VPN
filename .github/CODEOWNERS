@@ -1,0 +1,16 @@
+# Default owners for review. Last matching pattern wins.
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-security/customizing-your-repository/about-code-owners
+
+* @offsyanka99
+
+/.github/ @offsyanka99
+/SECURITY.md @offsyanka99
+
+# App source, tests, and release build
+/app/ @offsyanka99
+/gradle/ @offsyanka99
+/build.gradle.kts @offsyanka99
+/settings.gradle.kts @offsyanka99
+/gradle.properties @offsyanka99
+/gradlew @offsyanka99
+/gradlew.bat @offsyanka99
