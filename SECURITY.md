@@ -8,12 +8,12 @@ Security fixes go into the current release line published on [GitHub Releases](h
 
 | Version | Supported |
 |---------|-----------|
-| 1.4.12 (latest) | Yes |
-| Older than 1.4.12 | No |
+| 1.4.13 (latest) | Yes |
+| Older than 1.4.13 | No |
 
 ## Reporting a vulnerability
 
-Email [wifi-vpn@mailbox.org](mailto:wifi-vpn@mailbox.org). Do not open a public GitHub issue for an unfixed vulnerability.
+Email [hummersoft@mailbox.org](mailto:hummersoft@mailbox.org). Do not open a public GitHub issue for an unfixed vulnerability.
 
 Include:
 

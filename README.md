@@ -1,6 +1,6 @@
 # WiFi VPN
 
-**Version 1.4.12**
+**Version 1.4.13**
 
 Android app that monitors **trusted Wi‑Fi networks** in the background and automatically controls a **WireGuard** tunnel:
 
@@ -29,7 +29,7 @@ Built with **Kotlin + Jetpack** (AGP 9 built-in Kotlin, Foreground Service, Conn
 
 ## Contact
 
-- **Email:** [wifi-vpn@mailbox.org](mailto:wifi-vpn@mailbox.org)
+- **Email:** [hummersoft@mailbox.org](mailto:hummersoft@mailbox.org)
 
 ## Download
 
@@ -38,18 +38,22 @@ Signed release APKs are published as **[GitHub Release assets](https://github.co
 | Version | Download |
 |---------|----------|
 | **Latest** | [Releases](https://github.com/offsyanka99/WiFi-VPN/releases/latest) |
+| **1.4.13** | [v1.4.13](https://github.com/offsyanka99/WiFi-VPN/releases/tag/v1.4.13) |
 | **1.4.12** | [v1.4.12](https://github.com/offsyanka99/WiFi-VPN/releases/tag/v1.4.12) |
 | **1.4.10** | [v1.4.10](https://github.com/offsyanka99/WiFi-VPN/releases/tag/v1.4.10) |
-| **1.4.9** | [v1.4.9](https://github.com/offsyanka99/WiFi-VPN/releases/tag/v1.4.9) |
 
 Install with:
 
 ```bash
 # After downloading the APK from the GitHub release page:
-adb install -r wifi-vpn-1.4.12-release.apk
+adb install -r wifi-vpn-1.4.13-release.apk
 ```
 
 ## Changelog
+
+### 1.4.13
+
+- **Contact:** project email is [hummersoft@mailbox.org](mailto:hummersoft@mailbox.org) (About dialog, diagnostic-log share, and security reports)
 
 ### 1.4.12
 
@@ -190,7 +194,7 @@ Includes all changes from the unpublished 1.4.11 test build.
 | **`release/1.0`** | Stable **v1.0** release line (bugfixes only if needed) |
 | **`main`** | Ongoing development for future versions |
 
-Download tags currently published: `v1.4.9` / `v1.4.10` / `v1.4.12`. Older changelog entries remain below for history.
+Download tags currently published: `v1.4.10` / `v1.4.12` / `v1.4.13`. Older changelog entries remain below for history.
 
 ## Features
 
@@ -239,7 +243,7 @@ source ~/.bashrc
 cd /path/to/WiFi-VPN
 ./gradlew assembleDebug
 # APK: app/build/outputs/apk/debug/wifi-vpn-<version>-debug.apk
-adb install -r app/build/outputs/apk/debug/wifi-vpn-1.4.12-debug.apk
+adb install -r app/build/outputs/apk/debug/wifi-vpn-1.4.13-debug.apk
 ```
 
 ### Unit tests
@@ -260,18 +264,18 @@ Release builds use signing from `keystore.properties` (see `app/build.gradle.kts
 ./gradlew :app:assembleRelease
 
 # Output:
-#   app/build/outputs/apk/release/wifi-vpn-1.4.12-release.apk
+#   app/build/outputs/apk/release/wifi-vpn-1.4.13-release.apk
 
-adb install -r app/build/outputs/apk/release/wifi-vpn-1.4.12-release.apk
+adb install -r app/build/outputs/apk/release/wifi-vpn-1.4.13-release.apk
 
 # Publish to GitHub (example) — do not commit the APK:
-gh release create v1.4.12 \
-  app/build/outputs/apk/release/wifi-vpn-1.4.12-release.apk \
-  --title "1.4.12" \
+gh release create v1.4.13 \
+  app/build/outputs/apk/release/wifi-vpn-1.4.13-release.apk \
+  --title "1.4.13" \
   --notes "See README changelog."
 ```
 
-Current release: **1.4.12** (`versionCode` 28). Build outputs under `app/build/` are gitignored. APKs are distributed via **GitHub Releases**, not the git tree.
+Current release: **1.4.13** (`versionCode` 29). Build outputs under `app/build/` are gitignored. APKs are distributed via **GitHub Releases**, not the git tree.
 
 ## Setup
 

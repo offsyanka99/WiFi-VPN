@@ -152,7 +152,7 @@
     <string name="about_link">About</string>
     <string name="about_version">Version %1$s</string>
     <string name="about_year">2026</string>
-    <string name="about_email">wifi-vpn@mailbox.org</string>
+    <string name="about_email">hummersoft@mailbox.org</string>
     <string name="about_close">Close</string>
     <string name="label_diagnostic_log">Diagnostic log</string>
     <string name="diagnostic_log_help">Records Wi‑Fi and cellular changes (including SSID redacted / screen-off), network names, VPN on/off, tunnel connect success, retries, configuration changes, permissions, a support summary, and unexpected errors. Uncaught Java/Kotlin crashes and coroutine failures are always saved (even if this switch is off). Native / WireGuard-Go crashes and force-stops may not appear. Send the log by email when troubleshooting from another device.</string>
